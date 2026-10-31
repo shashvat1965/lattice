@@ -274,13 +274,15 @@ struct MainWindowView: View {
         case .welcome, .overview:
             Overview(model: model)
         case .spaces:
-            SpacesView(model: model)
+            // Spaces is now part of Overview; this case survives for old notifications only.
+            Overview(model: model)
         case .layouts:
             LayoutsGallery(model: model)
         case .shortcuts:
             ShortcutsPane()
         case .rules:
-            AppsPane()
+            // App rules now live inside Settings.
+            SettingsPane()
         case .settings:
             SettingsPane()
         case .about:

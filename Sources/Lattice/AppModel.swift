@@ -54,6 +54,9 @@ public final class AppModel: ObservableObject {
 
     public func bootstrap() {
         refreshPermissions()
+        // Displays and Spaces come from NSScreen and WindowServer, neither of which needs
+        // Accessibility. Reading them first means the UI is never blank without a permission.
+        refreshEnvironment()
         guard accessibilityGranted else {
             startPermissionWatcher()
             return
@@ -66,12 +69,14 @@ public final class AppModel: ObservableObject {
     }
 
     public func refreshPermissions() {
+        if isDemo { accessibilityGranted = true; return }
         accessibilityGranted = engine.isTrusted
     }
 
     /// Watches TCC while we do not have the grant, so flipping the switch in System Settings
     /// takes effect immediately instead of requiring a relaunch.
     public func startPermissionWatcher() {
+        if isDemo { return }
         guard permissionTimer == nil else { return }
         let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.pollPermission() }
@@ -82,6 +87,7 @@ public final class AppModel: ObservableObject {
     }
 
     private func pollPermission() {
+        if isDemo { return }
         let trusted = engine.isTrusted
         if trusted != accessibilityGranted {
             accessibilityGranted = trusted
@@ -111,6 +117,16 @@ public final class AppModel: ObservableObject {
                 }
             }
         }
+    }
+
+    /// Displays and Spaces only — no window access, so it works without a permission grant.
+    public func refreshEnvironment() {
+        displays = NSScreen.screens.compactMap { screen in
+            tiler.displayInfo(for: SpaceManager.displayID(for: screen))
+        }
+        spaces = SpaceManager.shared.displaySpaces()
+        focusedSpace = SpaceManager.shared.focusedSpace() ?? focusedSpace
+        syncLayoutWithFocusedSpace()
     }
 
     public func refreshSpaces() {

@@ -270,9 +270,8 @@ enum SettingsSystemShortcuts {
 
 // MARK: - Live gap diagram
 
-/// Draws the real layout inside a miniature screen so a slider drag is visible.
-/// It applies the same arithmetic as `Tiler.tileRect`: edge padding first, then the
-/// difference between the outer and inner gap, then the inner gap around every tile.
+/// Draws the real layout inside a miniature screen so a slider drag is visible. The
+/// Layouts page uses it for its gaps controls.
 struct SettingsGapPreview: View {
     var gap: CGFloat
     var outerGap: CGFloat
@@ -389,44 +388,5 @@ enum SettingsDiagnostics {
         """
         out += LatticeDiagnostics.snapshot()
         return out
-    }
-}
-
-// MARK: - Layout choice
-
-/// A selectable card wrapping the shared vector thumbnail.
-struct SettingsLayoutChoice: View {
-    var kind: LayoutKind
-    var selected: Bool
-    var action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: LatticeTheme.Spacing.xxs + 1) {
-                LayoutThumbnail(kind: kind, count: 3)
-                    .frame(width: 56, height: 34)
-
-                Text(kind.title)
-                    .font(.system(size: 10))
-                    .foregroundStyle(selected ? Color.primary : Color.secondary)
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, 7)
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: LatticeTheme.Radius.sm, style: .continuous)
-                    .fill(selected ? Color.latticeAccentFill : Color.latticeCardFill)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: LatticeTheme.Radius.sm, style: .continuous)
-                    .strokeBorder(selected ? Color.accentColor.opacity(0.7) : Color.latticeHairline,
-                                  lineWidth: selected ? 1.2 : LatticeTheme.hairline)
-            )
-        }
-        .buttonStyle(.plain)
-        .help(kind.summary)
-        .accessibilityLabel("\(kind.title) layout")
-        .accessibilityHint(kind.summary)
-        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }

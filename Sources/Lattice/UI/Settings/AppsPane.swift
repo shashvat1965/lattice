@@ -20,25 +20,38 @@ private struct AppRuleDraft: Identifiable {
 
     var id: String { bundleID }
 
-    var hasAnyEffect: Bool {
-        float || unmanaged || layout != nil || spaceNumber != nil
-            || !(titleContains ?? "").isEmpty || builtInFloat
+    var status: (text: String, tone: StatusPill.Tone, symbol: String) {
+        if unmanaged { return ("Leave alone", .neutral, "hand.raised") }
+        if float || builtInFloat { return ("Floating", .accent, "square.on.square") }
+        return ("Tiled", .positive, "rectangle.split.3x1")
+    }
+
+    var summary: String {
+        var parts: [String] = []
+        if let layout { parts.append("\(layout.title) layout") }
+        if let spaceNumber { parts.append("Space \(spaceNumber)") }
+        if let titleContains, !titleContains.isEmpty { parts.append("Title contains “\(titleContains)”") }
+        if parts.isEmpty {
+            parts.append(builtInFloat ? "Built-in exception" : "Uses the Space's layout")
+        }
+        return parts.joined(separator: " · ")
     }
 }
 
-// MARK: - AppsPane
+private struct InstalledApp: Identifiable, Hashable {
+    var bundleID: String
+    var name: String
+    var url: URL
+    var id: String { bundleID }
+}
 
-/// Per-app rules: a real editor, not a text field for bundle identifiers.
-/// One row per app, one sheet with every rule that app can carry.
+// MARK: - Settings › Apps
+
+/// Every app whose windows are treated differently, in one list. Floating and leaving
+/// alone are the same table, so an app is never shown twice. One search field filters
+/// this list and adds from Applications.
 @MainActor
-struct AppsPane: View {
-
-    private struct InstalledApp: Identifiable, Hashable {
-        var bundleID: String
-        var name: String
-        var url: URL
-        var id: String { bundleID }
-    }
+struct SettingsAppsSection: View {
 
     @ObservedObject private var model = AppModel.shared
     @ObservedObject private var store = SettingsPreferences.shared
@@ -49,25 +62,29 @@ struct AppsPane: View {
     @State private var editing: AppRuleDraft?
 
     var body: some View {
-        VStack(spacing: 0) {
-            paneHeader
-            LatticeDivider()
-            Form {
-                floatingSection
-                rulesSection
-                addSection
+        SettingsSection("Apps", subtitle: "Leave alone wins over floating.") {
+            searchRow
+
+            let rows = filteredRules
+
+            if rows.isEmpty, addCandidates.isEmpty {
+                SettingsContentRow(showsDivider: false) {
+                    InlineHint(
+                        text: query.isEmpty
+                            ? "Every app is tiled."
+                            : "No app matches “\(query)”.",
+                        symbol: "app.badge"
+                    )
+                }
+            } else {
+                ForEach(Array(rows.enumerated()), id: \.element.id) { index, draft in
+                    ruleRow(draft, showsDivider: index < rows.count - 1 || !addCandidates.isEmpty)
+                }
             }
-            .formStyle(.grouped)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.latticeCanvas)
-        .onAppear {
-            store.beginObserving()
-            model.rebuildWindowCache()
-            loadInstalledApps()
-        }
-        .onDisappear {
-            store.endObserving()
+
+            ForEach(Array(addCandidates.enumerated()), id: \.element.id) { index, app in
+                addRow(app, showsDivider: index < addCandidates.count - 1)
+            }
         }
         .sheet(item: $editing) { draft in
             AppRuleEditor(
@@ -76,147 +93,55 @@ struct AppsPane: View {
                 onDelete: { delete($0) }
             )
         }
+        .onAppear { loadInstalledApps() }
     }
 
-    private var paneHeader: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text("Apps")
-                .latticeTitle()
-            Text("Decide which apps Lattice tiles, and how.")
-                .latticeCaption()
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, LatticeTheme.gutter)
-        .padding(.top, 18)
-        .padding(.bottom, LatticeTheme.Spacing.sm)
-    }
+    // MARK: Search
 
-    // MARK: Always floating
-
-    /// The list the user actually asked for: apps whose windows are never tiled.
-    /// Deliberately the first thing on the page, because it is the most common tweak.
-    private var floatingSection: some View {
-        Section {
-            if floatingApps.isEmpty {
-                Text("No floating apps. Every window is tiled.")
-                    .font(.system(size: 12))
+    private var searchRow: some View {
+        SettingsContentRow(showsDivider: true) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
-                    .padding(.vertical, 4)
-            } else {
-                ForEach(floatingApps, id: \.bundleID) { app in
-                    HStack(spacing: LatticeTheme.Spacing.xs) {
-                        AppIcon(bundleID: app.bundleID, appName: app.name, size: 22)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(app.name)
-                                .font(.system(size: 12, weight: .medium))
-                            Text(app.isSystem ? "System app · never tiled" : "Never tiled")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.tertiary)
-                        }
-                        Spacer(minLength: LatticeTheme.Spacing.xs)
-                        Button {
-                            PreferencesStore.shared.update { $0.floatBundleIDs.remove(app.bundleID) }
-                            HotkeyCenter.shared.reload()
-                            model.tiler.reconcile()
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundStyle(.tertiary)
-                        }
-                        .buttonStyle(.plain)
-                        .help("Tile this app again")
-                        .accessibilityLabel("Remove \(app.name) from floating apps")
+
+                TextField("Search apps, or add one", text: $query)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .accessibilityLabel("Search apps, or add one")
+
+                if isLoading {
+                    ProgressView().controlSize(.small)
+                } else if !query.isEmpty {
+                    Button {
+                        query = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
                     }
-                    .padding(.vertical, 2)
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear the app search")
                 }
             }
-        } header: {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Always floating")
-                Text("\(floatingApps.count)")
-                    .font(.system(size: 11).monospacedDigit())
-                    .foregroundStyle(.tertiary)
-                Spacer()
-                Menu("Add app…") {
-                    let available = installed
-                        .filter { !store.prefs.floatBundleIDs.contains($0.bundleID) }
-                        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-                    if available.isEmpty {
-                        Text("Every installed app is already listed")
-                    } else {
-                        ForEach(available) { app in
-                            Button(app.name) {
-                                PreferencesStore.shared.update { $0.floatBundleIDs.insert(app.bundleID) }
-                                HotkeyCenter.shared.reload()
-                                model.tiler.reconcile()
-                            }
-                        }
-                    }
-                }
-                .menuStyle(.borderlessButton)
-                .controlSize(.small)
-                .fixedSize()
-                .accessibilityLabel("Add an app that should never be tiled")
-            }
-        } footer: {
-            Text("Windows from these apps keep their own size and position. Everything else is tiled.")
+            .padding(.horizontal, LatticeTheme.Spacing.xs)
+            .frame(height: 26)
+            .background(
+                RoundedRectangle(cornerRadius: LatticeTheme.Radius.sm, style: .continuous)
+                    .fill(Color.latticeCardFill)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: LatticeTheme.Radius.sm, style: .continuous)
+                    .strokeBorder(Color.latticeHairline, lineWidth: LatticeTheme.hairline)
+            )
         }
     }
 
-    private struct FloatingApp: Identifiable {
-        var bundleID: String
-        var name: String
-        var isSystem: Bool
-        var id: String { bundleID }
-    }
+    // MARK: Rows
 
-    private var floatingApps: [FloatingApp] {
-        store.prefs.floatBundleIDs
-            .map { bundleID in
-                let installedName = installed.first { $0.bundleID == bundleID }?.name
-                let name = installedName
-                    ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
-                        .map { FileManager.default.displayName(atPath: $0.path) }
-                    ?? bundleID
-                return FloatingApp(bundleID: bundleID, name: name, isSystem: bundleID.hasPrefix("com.apple."))
-            }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-    }
-
-    // MARK: Rules
-
-    private var rulesSection: some View {
-        Section {
-            if rules.isEmpty {
-                EmptyState(
-                    symbol: "app.badge",
-                    title: "Every app is tiled",
-                    message: "There are no rules yet. Add an app below to float it, leave it alone, or give it its own layout.",
-                    compact: true
-                )
-            } else {
-                ForEach(rules) { draft in
-                    ruleRow(draft)
-                }
-            }
-        } header: {
-            HStack(alignment: .firstTextBaseline) {
-                Text("App rules")
-                Text("\(rules.count)")
-                    .font(.system(size: 11).monospacedDigit())
-                    .foregroundStyle(.tertiary)
-                Spacer()
-                Button("Reload apps") { reloadInstalledApps() }
-                    .controlSize(.small)
-                    .accessibilityLabel("Reload the list of installed applications")
-            }
-        } footer: {
-            Text("Rules are matched by bundle identifier. Leave alone wins over floating. A title match narrows the rule to windows whose title contains that text, so an app can be tiled normally except for one kind of window.")
-        }
-    }
-
-    private func ruleRow(_ draft: AppRuleDraft) -> some View {
-        HStack(spacing: LatticeTheme.Spacing.xs) {
-            AppIcon(bundleID: draft.bundleID, appName: draft.name, size: 22)
+    private func ruleRow(_ draft: AppRuleDraft, showsDivider: Bool) -> some View {
+        HStack(spacing: LatticeTheme.Spacing.sm) {
+            AppIcon(bundleID: draft.bundleID, appName: draft.name, size: 24)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
@@ -224,157 +149,89 @@ struct AppsPane: View {
                         .font(.system(size: 13, weight: .medium))
                         .lineLimit(1)
 
-                    statusPill(for: draft)
+                    StatusPill(text: draft.status.text, tone: draft.status.tone, symbol: draft.status.symbol)
                 }
 
-                Text(draft.bundleID)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(.tertiary)
+                Text(draft.summary)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
-                    .truncationMode(.middle)
-
-                if let detail = detail(for: draft) {
-                    Text(detail)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
+                    .truncationMode(.tail)
             }
 
             Spacer(minLength: LatticeTheme.Spacing.sm)
 
-            Button {
-                editing = draft
-            } label: {
-                Image(systemName: "slider.horizontal.3")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-            .help("Edit the rule for \(draft.name)")
-            .accessibilityLabel("Edit rules for \(draft.name)")
-
-            Button {
-                delete(draft)
-            } label: {
-                Image(systemName: "minus.circle.fill")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.tertiary)
-            }
-            .buttonStyle(.plain)
-            .help(draft.builtInFloat && !draft.hasRule && !draft.unmanaged
-                  ? "Remove this exception and let Lattice tile \(draft.name)"
-                  : "Remove the rule for \(draft.name)")
-            .accessibilityLabel("Remove the rule for \(draft.name)")
+            rowMenu(draft)
         }
+        .padding(.horizontal, LatticeTheme.Spacing.md)
         .frame(minHeight: 52)
         .accessibilityElement(children: .contain)
+        .overlay(alignment: .bottom) {
+            if showsDivider {
+                LatticeDivider(insetLeading: LatticeTheme.Spacing.md)
+            }
+        }
+    }
+
+    private func rowMenu(_ draft: AppRuleDraft) -> some View {
+        Menu {
+            Button("Tile it") { setBehaviour(.tiled, for: draft) }
+            Button("Float it") { setBehaviour(.floating, for: draft) }
+            Button("Leave it alone") { setBehaviour(.leaveAlone, for: draft) }
+
+            Divider()
+
+            Menu("Layout") {
+                checkable("Use the Space's layout", selected: draft.layout == nil) {
+                    setLayout(nil, for: draft)
+                }
+                Divider()
+                ForEach(LayoutKind.allCases) { kind in
+                    checkable(kind.title, selected: draft.layout == kind) {
+                        setLayout(kind, for: draft)
+                    }
+                }
+            }
+
+            Menu("Send to Space") {
+                checkable("Don't move it", selected: draft.spaceNumber == nil) {
+                    setSpace(nil, for: draft)
+                }
+                Divider()
+                ForEach(1...9, id: \.self) { number in
+                    checkable("Space \(number)", selected: draft.spaceNumber == number) {
+                        setSpace(number, for: draft)
+                    }
+                }
+            }
+
+            Divider()
+
+            Button("Title contains…") { editing = draft }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Change how \(draft.name) is handled")
+        .accessibilityLabel("Options for \(draft.name)")
     }
 
     @ViewBuilder
-    private func statusPill(for draft: AppRuleDraft) -> some View {
-        if draft.unmanaged {
-            StatusPill(text: "Leave alone", tone: .neutral, symbol: "hand.raised")
-        } else if draft.float || draft.builtInFloat {
-            StatusPill(text: "Floating", tone: .accent, symbol: "square.on.square")
-        } else {
-            StatusPill(text: "Tiled", tone: .positive, symbol: "rectangle.split.3x1")
-        }
-    }
-
-    private func detail(for draft: AppRuleDraft) -> String? {
-        var parts: [String] = []
-        if let layout = draft.layout { parts.append("\(layout.title) layout") }
-        if let space = draft.spaceNumber { parts.append("send to Space \(space)") }
-        if let title = draft.titleContains, !title.isEmpty { parts.append("title contains “\(title)”") }
-        if draft.builtInFloat, parts.isEmpty { parts.append("built-in exception") }
-        if draft.unmanaged, parts.isEmpty { parts.append("Lattice never touches its windows") }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
-    }
-
-    // MARK: Add app
-
-    private var addSection: some View {
-        Section {
-            searchField
-
-            if isLoading {
-                HStack(spacing: LatticeTheme.Spacing.xs) {
-                    ProgressView().controlSize(.small)
-                    Text("Reading your Applications folders…")
-                        .latticeCaption()
-                }
-                .frame(height: 40)
-            } else if candidates.isEmpty {
-                Text(query.isEmpty
-                     ? "No applications left to add."
-                     : "No application matches “\(query)”.")
-                    .latticeCaption()
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 10)
+    private func checkable(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            if selected {
+                Label(title, systemImage: "checkmark")
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(candidates) { app in
-                            addRow(app)
-                            if app.id != candidates.last?.id {
-                                LatticeDivider(insetLeading: 34)
-                            }
-                        }
-                    }
-                }
-                .frame(height: 216)
-                .background(
-                    RoundedRectangle(cornerRadius: LatticeTheme.Radius.md, style: .continuous)
-                        .fill(Color.latticeCardFill.opacity(0.5))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: LatticeTheme.Radius.md, style: .continuous)
-                        .strokeBorder(Color.latticeHairline, lineWidth: LatticeTheme.hairline)
-                )
+                Text(title)
             }
-        } header: {
-            Text("Add an app…")
-        } footer: {
-            Text("Read from /Applications and /System/Applications. Only apps with a bundle identifier can be added. Menu bar apps and system agents work too — they simply have no standard window to tile.")
         }
     }
 
-    private var searchField: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
-            TextField("Search applications", text: $query)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12))
-                .accessibilityLabel("Search applications to add")
-            if !query.isEmpty {
-                Button {
-                    query = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.tertiary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Clear application search")
-            }
-        }
-        .padding(.horizontal, LatticeTheme.Spacing.xs)
-        .frame(height: 26)
-        .background(
-            RoundedRectangle(cornerRadius: LatticeTheme.Radius.sm, style: .continuous)
-                .fill(Color.latticeCardFill)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: LatticeTheme.Radius.sm, style: .continuous)
-                .strokeBorder(Color.latticeHairline, lineWidth: LatticeTheme.hairline)
-        )
-    }
-
-    private func addRow(_ app: InstalledApp) -> some View {
+    private func addRow(_ app: InstalledApp, showsDivider: Bool) -> some View {
         Button {
             editing = AppRuleDraft(
                 bundleID: app.bundleID,
@@ -388,38 +245,37 @@ struct AppsPane: View {
                 hasRule: false
             )
         } label: {
-            HStack(spacing: LatticeTheme.Spacing.xs) {
-                AppIcon(bundleID: app.bundleID, appName: app.name, size: 20)
+            HStack(spacing: LatticeTheme.Spacing.sm) {
+                AppIcon(bundleID: app.bundleID, appName: app.name, size: 22)
 
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(app.name)
-                        .font(.system(size: 12))
-                        .foregroundStyle(.primary)
-                    Text(app.bundleID)
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
+                Text(app.name)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
 
-                Spacer(minLength: LatticeTheme.Spacing.xs)
+                Spacer(minLength: LatticeTheme.Spacing.sm)
 
                 Image(systemName: "plus.circle")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, LatticeTheme.Spacing.xs)
+            .padding(.horizontal, LatticeTheme.Spacing.md)
             .frame(height: 40)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help("Add a rule for \(app.name)")
         .accessibilityLabel("Add a rule for \(app.name)")
+        .overlay(alignment: .bottom) {
+            if showsDivider {
+                LatticeDivider(insetLeading: LatticeTheme.Spacing.md)
+            }
+        }
     }
 
     // MARK: Data
 
-    private var rules: [AppRuleDraft] {
+    private var allRules: [AppRuleDraft] {
         var ids = Set(store.prefs.rules.map(\.bundleID))
         ids.formUnion(store.prefs.unmanagedBundleIDs)
         ids.formUnion(store.prefs.floatBundleIDs)
@@ -441,81 +297,145 @@ struct AppsPane: View {
         .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
-    private var candidates: [InstalledApp] {
-        let configured = Set(rules.map(\.bundleID))
-        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return installed.filter { app in
-            guard !configured.contains(app.bundleID) else { return false }
-            guard !needle.isEmpty else { return true }
-            return app.name.lowercased().contains(needle)
-                || app.bundleID.lowercased().contains(needle)
+    private var trimmedQuery: String {
+        query.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var filteredRules: [AppRuleDraft] {
+        let needle = trimmedQuery.lowercased()
+        guard !needle.isEmpty else { return allRules }
+        return allRules.filter { draft in
+            draft.name.lowercased().contains(needle)
+                || draft.bundleID.lowercased().contains(needle)
+                || (draft.titleContains ?? "").lowercased().contains(needle)
         }
+    }
+
+    /// Apps that match the search but have no rule yet. Nothing is listed until you type.
+    private var addCandidates: [InstalledApp] {
+        let needle = trimmedQuery.lowercased()
+        guard !needle.isEmpty else { return [] }
+        let configured = Set(allRules.map(\.bundleID))
+        return installed
+            .filter { app in
+                !configured.contains(app.bundleID)
+                    && (app.name.lowercased().contains(needle)
+                        || app.bundleID.lowercased().contains(needle))
+            }
+            .prefix(6)
+            .map { $0 }
     }
 
     // MARK: Writes
 
-    private func save(_ draft: AppRuleDraft) {
-        store.update { prefs in
-            if draft.unmanaged {
-                prefs.unmanagedBundleIDs.insert(draft.bundleID)
-            } else {
+    private enum Behaviour {
+        case tiled, floating, leaveAlone
+    }
+
+    private func setBehaviour(_ behaviour: Behaviour, for draft: AppRuleDraft) {
+        withRule(draft) { rule, prefs in
+            switch behaviour {
+            case .tiled:
+                rule.float = false
+                rule.unmanaged = false
                 prefs.unmanagedBundleIDs.remove(draft.bundleID)
-            }
-
-            // Turning floating off for an app that was floating by default has to
-            // remove the built-in exception, or it would float again on the next pass.
-            if !draft.float, draft.builtInFloat {
                 prefs.floatBundleIDs.remove(draft.bundleID)
+            case .floating:
+                rule.float = true
+                rule.unmanaged = false
+                prefs.unmanagedBundleIDs.remove(draft.bundleID)
+            case .leaveAlone:
+                rule.float = false
+                rule.unmanaged = true
+                prefs.unmanagedBundleIDs.insert(draft.bundleID)
             }
+        }
+    }
 
+    private func setLayout(_ kind: LayoutKind?, for draft: AppRuleDraft) {
+        withRule(draft) { rule, _ in rule.layout = kind }
+    }
+
+    private func setSpace(_ number: Int?, for draft: AppRuleDraft) {
+        withRule(draft) { rule, _ in rule.spaceNumber = number }
+    }
+
+    /// Writes one rule through PreferencesStore, keeping the legacy `unmanagedBundleIDs`
+    /// set in step, and drops the rule when it would no longer do anything.
+    private func withRule(_ draft: AppRuleDraft,
+                          _ change: (inout AppRule, inout Preferences) -> Void) {
+        store.update { prefs in
             var rule = prefs.rule(for: draft.bundleID)
                 ?? AppRule(bundleID: draft.bundleID, name: draft.name)
             rule.name = draft.name
+            rule.float = draft.float
             rule.unmanaged = draft.unmanaged
-            rule.float = draft.float && !draft.unmanaged
             rule.layout = draft.layout
             rule.spaceNumber = draft.spaceNumber
             let title = (draft.titleContains ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             rule.titleContains = title.isEmpty ? nil : title
 
-            let empty = !rule.float && !rule.unmanaged
-                && rule.layout == nil && rule.spaceNumber == nil && rule.titleContains == nil
+            change(&rule, &prefs)
+
+            if rule.unmanaged {
+                prefs.unmanagedBundleIDs.insert(draft.bundleID)
+            } else {
+                prefs.unmanagedBundleIDs.remove(draft.bundleID)
+            }
 
             prefs.rules.removeAll { $0.bundleID == draft.bundleID }
-            if !empty {
+
+            let keepsSomething = rule.float || rule.unmanaged || rule.layout != nil
+                || rule.spaceNumber != nil || rule.titleContains != nil
+            if keepsSomething {
                 prefs.rules.append(rule)
+            }
+        }
+        model.tiler.reconcile()
+    }
+
+    private func save(_ draft: AppRuleDraft) {
+        let title = (draft.titleContains ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let edited = AppRuleDraft(
+            bundleID: draft.bundleID,
+            name: draft.name,
+            float: draft.float,
+            unmanaged: draft.unmanaged,
+            layout: draft.layout,
+            spaceNumber: draft.spaceNumber,
+            titleContains: title.isEmpty ? nil : title,
+            builtInFloat: draft.builtInFloat,
+            hasRule: draft.hasRule
+        )
+
+        withRule(edited) { rule, prefs in
+            if edited.unmanaged {
+                prefs.unmanagedBundleIDs.insert(edited.bundleID)
+            } else {
+                prefs.unmanagedBundleIDs.remove(edited.bundleID)
+            }
+            // Turning floating off for an app that floated by default has to remove the
+            // built-in exception, or it would float again on the next pass.
+            if !edited.float, edited.builtInFloat {
+                prefs.floatBundleIDs.remove(edited.bundleID)
             }
         }
     }
 
     private func delete(_ draft: AppRuleDraft) {
         store.update { prefs in
-            if draft.hasRule || draft.unmanaged {
-                prefs.rules.removeAll { $0.bundleID == draft.bundleID }
-                prefs.unmanagedBundleIDs.remove(draft.bundleID)
-            } else {
-                // A built-in exception with no rule of its own: removing it means
-                // "let Lattice tile this app".
-                prefs.floatBundleIDs.remove(draft.bundleID)
-            }
+            prefs.rules.removeAll { $0.bundleID == draft.bundleID }
+            prefs.unmanagedBundleIDs.remove(draft.bundleID)
+            // A built-in exception with no rule of its own means "let Lattice tile it".
+            prefs.floatBundleIDs.remove(draft.bundleID)
         }
+        model.tiler.reconcile()
     }
 
     // MARK: Installed apps
 
     private func loadInstalledApps() {
         guard installed.isEmpty, isLoading else { return }
-        DispatchQueue.global(qos: .userInitiated).async {
-            let apps = Self.scanApplications()
-            DispatchQueue.main.async {
-                self.installed = apps
-                self.isLoading = false
-            }
-        }
-    }
-
-    private func reloadInstalledApps() {
-        isLoading = true
         DispatchQueue.global(qos: .userInitiated).async {
             let apps = Self.scanApplications()
             DispatchQueue.main.async {
@@ -610,7 +530,7 @@ private struct AppRuleEditor: View {
             LatticeDivider()
             footer
         }
-        .frame(width: 520, height: 590)
+        .frame(width: 520, height: 470)
         .background(Color.latticeCanvas)
         .onChange(of: unmanaged) { _, isUnmanaged in
             if isUnmanaged { float = false }
@@ -648,18 +568,12 @@ private struct AppRuleEditor: View {
                     .toggleStyle(.switch)
                     .disabled(unmanaged)
                     .accessibilityLabel("Float \(draft.name)")
-                    .accessibilityHint("Keep its windows out of the tiling layout")
 
                 Toggle("Leave this app alone", isOn: $unmanaged)
                     .toggleStyle(.switch)
                     .accessibilityLabel("Leave \(draft.name) alone")
-                    .accessibilityHint("Lattice will not read or move any of its windows")
             } header: {
                 Text("Behaviour")
-            } footer: {
-                Text(unmanaged
-                     ? "Lattice will not touch this app's windows at all. This wins over floating."
-                     : "Floating keeps windows where you put them. Leaving an app alone means Lattice ignores it entirely, including new windows.")
             }
 
             Section {
@@ -686,8 +600,6 @@ private struct AppRuleEditor: View {
                     .accessibilityLabel("Only apply this rule to windows whose title contains")
             } header: {
                 Text("Placement")
-            } footer: {
-                Text("A layout override only applies on displays where this app is tiled. Sending to a Space happens the first time a window from this app appears. A title match narrows every rule above to matching windows.")
             }
         }
         .formStyle(.grouped)
@@ -696,7 +608,7 @@ private struct AppRuleEditor: View {
     private var footer: some View {
         HStack(spacing: LatticeTheme.Spacing.xs) {
             if draft.hasRule || draft.builtInFloat || draft.unmanaged {
-                Button(isBuiltInOnly ? "Tile This App" : "Remove Rule", role: .destructive) {
+                Button(isBuiltInOnly ? "Tile this app" : "Remove rule", role: .destructive) {
                     onDelete(draft)
                     dismiss()
                 }
@@ -736,6 +648,37 @@ private struct AppRuleEditor: View {
         .padding(.horizontal, LatticeTheme.Spacing.lg)
         .padding(.vertical, LatticeTheme.Spacing.sm)
         .background(.bar)
+    }
+}
+
+// MARK: - AppsPane
+//
+// The shell still has an Apps sidebar row, so this pane stays alive as the same section
+// rather than a second copy of the controls. There is one implementation, in Settings.
+
+@MainActor
+struct AppsPane: View {
+
+    @ObservedObject private var store = SettingsPreferences.shared
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: LatticeTheme.Spacing.xl) {
+                Text("Apps")
+                    .latticeTitle()
+
+                SettingsAppsSection()
+            }
+            .frame(maxWidth: 880, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.horizontal, LatticeTheme.gutter)
+            .padding(.top, 18)
+            .padding(.bottom, 40)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.latticeCanvas)
+        .onAppear { store.beginObserving() }
+        .onDisappear { store.endObserving() }
     }
 }
 

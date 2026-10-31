@@ -72,6 +72,21 @@ enum RenderProbe {
             .background(Color(nsColor: .windowBackgroundColor))
         ), size: CGSize(width: 420, height: 240), dir: dir)
 
+        probe("symbols", AnyView(
+            VStack(spacing: 12) {
+                HStack(spacing: 16) {
+                    Image(systemName: "keyboard").font(.system(size: 28))
+                    Image(systemName: "rectangle.split.3x1").font(.system(size: 28))
+                    Image(systemName: "gearshape").font(.system(size: 28))
+                }
+                Toggle("Switch", isOn: .constant(true)).toggleStyle(.switch)
+                Picker("Pick", selection: .constant(0)) { Text("A").tag(0); Text("B").tag(1) }.pickerStyle(.segmented)
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(nsColor: .windowBackgroundColor))
+        ), size: CGSize(width: 420, height: 220), dir: dir)
+
         Log.info("PROBE done")
         if ProcessInfo.processInfo.environment["LATTICE_CAPTURE_EXIT"] == "1" { NSApp.terminate(nil) }
     }

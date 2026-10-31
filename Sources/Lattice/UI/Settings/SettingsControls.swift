@@ -4,8 +4,8 @@ import LatticeKit
 
 // MARK: - Section container
 
-/// One settings section: an uppercase header, a card of native rows, and a help
-/// caption underneath. The card is the only thing that scrolls; there are no tabs.
+/// One settings section: an uppercase header, a card of native rows, and at most one
+/// sentence underneath. The card is the only thing on the page; there are no tabs.
 struct SettingsSection<Content: View, Trailing: View>: View {
     var title: String
     var subtitle: String?
@@ -287,22 +287,58 @@ struct SettingsDisclosureRow: View {
     }
 }
 
+// MARK: - Action row
+
+/// A whole row that is one action. Launchers read as launchers, not as a title with a
+/// button stuck to the right of it.
+struct SettingsActionRow: View {
+    var title: String
+    var symbol: String = "arrow.up.forward"
+    var isDestructive: Bool = false
+    var isEnabled: Bool = true
+    var showsDivider: Bool = true
+    var action: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button(action: action) {
+                HStack(spacing: LatticeTheme.Spacing.sm) {
+                    Text(title)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(isDestructive ? Color(nsColor: .systemRed) : Color.primary)
+
+                    Spacer(minLength: 0)
+
+                    Image(systemName: symbol)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(.horizontal, LatticeTheme.Spacing.md)
+                .frame(minHeight: LatticeTheme.listRow)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!isEnabled)
+            .opacity(isEnabled ? 1 : 0.5)
+
+            if showsDivider {
+                LatticeDivider(insetLeading: LatticeTheme.Spacing.md)
+            }
+        }
+    }
+}
+
 // MARK: - Colour
 
 enum SettingsHexColor {
-    /// A small curated set, not a full colour wheel. The well beside them is for anything else.
+    /// Six colours, not a colour wheel. The well beside the menu is for anything else.
     static let palette: [(name: String, hex: String)] = [
         ("Red", "#FF3B30"),
         ("Orange", "#FF9500"),
         ("Yellow", "#FFCC00"),
         ("Green", "#34C759"),
-        ("Mint", "#00C7BE"),
-        ("Teal", "#30B0C7"),
         ("Blue", "#007AFF"),
-        ("Indigo", "#5856D6"),
         ("Purple", "#AF52DE"),
-        ("Pink", "#FF2D55"),
-        ("Graphite", "#8E8E93"),
     ]
 
     static func color(from hex: String?) -> Color? {
@@ -331,9 +367,14 @@ enum SettingsHexColor {
             Int(round(rgb.blueComponent * 255))
         )
     }
+
+    static func name(for hex: String?) -> String {
+        guard let hex else { return "System accent" }
+        return palette.first { $0.hex.caseInsensitiveCompare(hex) == .orderedSame }?.name ?? "Custom"
+    }
 }
 
-/// Palette + well + "System accent". A nil value means the system accent colour.
+/// One menu (system accent plus six colours) and a colour well. A nil value is the accent.
 struct SettingsColorRow: View {
     var title: String
     var subtitle: String?
@@ -348,10 +389,39 @@ struct SettingsColorRow: View {
 
     var body: some View {
         SettingRow(title, subtitle: subtitle, showsDivider: showsDivider) {
-            HStack(spacing: LatticeTheme.Spacing.xs) {
-                ForEach(Array(SettingsHexColor.palette.enumerated()), id: \.offset) { _, entry in
-                    swatch(entry)
+            HStack(spacing: LatticeTheme.Spacing.sm) {
+                Menu {
+                    Button {
+                        onChange(nil)
+                    } label: {
+                        if hex == nil {
+                            Label("System accent", systemImage: "checkmark")
+                        } else {
+                            Text("System accent")
+                        }
+                    }
+
+                    Divider()
+
+                    ForEach(Array(SettingsHexColor.palette.enumerated()), id: \.offset) { _, entry in
+                        Button {
+                            onChange(entry.hex)
+                        } label: {
+                            if hex?.caseInsensitiveCompare(entry.hex) == .orderedSame {
+                                Label(entry.name, systemImage: "checkmark")
+                            } else {
+                                Text(entry.name)
+                            }
+                        }
+                    }
+                } label: {
+                    swatchLabel
                 }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .disabled(!isEnabled)
+                .accessibilityLabel("Border colour, \(SettingsHexColor.name(for: hex))")
 
                 ColorPicker(
                     "Custom colour",
@@ -366,44 +436,42 @@ struct SettingsColorRow: View {
                     supportsOpacity: false
                 )
                 .labelsHidden()
-                .frame(width: 28)
+                .frame(width: 26)
+                .disabled(!isEnabled)
                 .help("Choose any colour")
-                .accessibilityLabel("Custom border colour")
-
-                Button("System") { onChange(nil) }
-                    .controlSize(.small)
-                    .help("Use the colour your Mac uses for controls")
-                    .accessibilityLabel("Use the system accent colour")
-                    .accessibilityAddTraits(hex == nil ? .isSelected : [])
+                .accessibilityLabel("Choose a custom border colour")
             }
-            .disabled(!isEnabled)
         }
         .padding(.horizontal, LatticeTheme.Spacing.md)
         .opacity(isEnabled ? 1 : 0.55)
         .animation(LatticeTheme.animation, value: isEnabled)
     }
 
-    private func swatch(_ entry: (name: String, hex: String)) -> some View {
-        let selected = hex?.caseInsensitiveCompare(entry.hex) == .orderedSame
-        return Button {
-            onChange(entry.hex)
-        } label: {
+    private var swatchLabel: some View {
+        HStack(spacing: 6) {
             Circle()
-                .fill(SettingsHexColor.color(from: entry.hex) ?? .gray)
-                .frame(width: 17, height: 17)
-                .overlay(
-                    Circle().strokeBorder(
-                        selected ? Color.primary : Color.black.opacity(0.14),
-                        lineWidth: selected ? 1.5 : LatticeTheme.hairline
-                    )
-                )
-                .padding(1)
-                .contentShape(Circle())
+                .fill(currentColor)
+                .frame(width: 13, height: 13)
+                .overlay(Circle().strokeBorder(Color.black.opacity(0.15), lineWidth: 0.5))
+
+            Text(SettingsHexColor.name(for: hex))
+                .font(.system(size: 12))
+                .foregroundStyle(.primary)
+
+            Image(systemName: "chevron.down")
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(.tertiary)
         }
-        .buttonStyle(.plain)
-        .help(entry.name)
-        .accessibilityLabel("\(entry.name) border colour")
-        .accessibilityAddTraits(selected ? .isSelected : [])
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: LatticeTheme.Radius.sm, style: .continuous)
+                .fill(Color.latticeCardFill)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: LatticeTheme.Radius.sm, style: .continuous)
+                .strokeBorder(Color.latticeHairline, lineWidth: LatticeTheme.hairline)
+        )
     }
 }
 
@@ -474,78 +542,6 @@ struct SettingsBorderPreview: View {
             }
             .frame(width: max(0, rect.width), height: max(0, rect.height))
             .offset(x: rect.minX, y: rect.minY)
-    }
-}
-
-/// A live Master layout preview: the master pane widens as the ratio moves and the
-/// stack panes inset as the peek grows.
-struct SettingsMasterPreview: View {
-    var ratio: Double
-    var peek: CGFloat
-
-    var body: some View {
-        GeometryReader { geo in
-            let canvas = CGRect(origin: .zero, size: geo.size).insetBy(dx: 4, dy: 4)
-            let gap: CGFloat = 4
-            let masterWidth = max(8, (canvas.width - gap) * CGFloat(ratio))
-            let stackX = canvas.minX + masterWidth + gap
-            let stackWidth = max(4, canvas.width - masterWidth - gap)
-            let peekScale = min(4, max(0, peek * 0.12))
-
-            ZStack(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .fill(Color(nsColor: .underPageBackgroundColor))
-
-                tile(rect: CGRect(x: canvas.minX, y: canvas.minY,
-                                  width: masterWidth, height: canvas.height),
-                     emphasis: 0.30)
-
-                ForEach(0..<3, id: \.self) { index in
-                    let rowHeight = (canvas.height - gap * 2) / 3
-                    let depth = CGFloat(2 - index)
-                    let inset = peekScale * depth
-                    tile(rect: CGRect(x: stackX + inset,
-                                      y: canvas.minY + CGFloat(index) * (rowHeight + gap) + inset,
-                                      width: max(3, stackWidth - inset),
-                                      height: max(3, rowHeight - inset)),
-                         emphasis: index == 0 ? 0.24 : 0.16)
-                }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .strokeBorder(Color.latticeHairline, lineWidth: LatticeTheme.hairline)
-            )
-        }
-        .animation(LatticeTheme.animation, value: ratio)
-        .animation(LatticeTheme.animation, value: peek)
-        .accessibilityHidden(true)
-    }
-
-    private func tile(rect: CGRect, emphasis: Double) -> some View {
-        RoundedRectangle(cornerRadius: 3, style: .continuous)
-            .fill(Color.accentColor.opacity(emphasis))
-            .overlay(
-                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                    .strokeBorder(Color.accentColor.opacity(0.45), lineWidth: LatticeTheme.hairline)
-            )
-            .frame(width: max(0, rect.width), height: max(0, rect.height))
-            .offset(x: rect.minX, y: rect.minY)
-    }
-}
-
-/// A thumbnail that changes with the chosen column count: automatic shows a balanced
-/// grid, a fixed count shows that many real columns.
-struct SettingsGridPreview: View {
-    var columns: Int
-
-    var previewCount: Int {
-        columns == 0 ? 6 : min(12, max(1, columns))
-    }
-
-    var body: some View {
-        LayoutThumbnail(kind: columns == 0 ? .grid : .columns, count: previewCount)
-            .accessibilityHidden(true)
     }
 }
 

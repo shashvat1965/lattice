@@ -12,7 +12,10 @@ enum DemoData {
     static func apply(to model: AppModel) {
         guard isEnabled else { return }
         guard let display = model.displays.first else { return }
-        let space = model.focusedSpace
+        // Use the Space WindowServer says is showing on that display, so the fixtures land in
+        // the bucket the UI actually reads.
+        let space = model.spaces.first(where: { $0.display == display.id })?.current
+            ?? model.focusedSpace
         let area = display.visibleFrame.insetBy(dx: 8, dy: 8)
 
         func rect(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) -> CGRect {

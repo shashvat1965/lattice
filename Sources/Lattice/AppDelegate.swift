@@ -24,6 +24,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppDelegate.shared = self
         model.bootstrap()
+        // Fixtures come after bootstrap so the permission state the renderer sees is ours.
+        DemoData.apply(to: model)
         ControlServer.shared.start(model: model)
         statusBar = StatusBarController(model: model)
         HotkeyCenter.shared.install(model: model)
@@ -63,6 +65,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         FocusFollowMonitor.shared.start(model: model)
         DebugCapture.scheduleIfRequested()
         SmokeTest.runIfRequested(model: model)
+        if let path = ProcessInfo.processInfo.environment["LATTICE_SHOTS"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                PageSnapshots.runIfRequested(into: URL(fileURLWithPath: path, isDirectory: true))
+            }
+        }
         if let path = ProcessInfo.processInfo.environment["LATTICE_PROBE"] {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 RenderProbe.runIfRequested(into: URL(fileURLWithPath: path, isDirectory: true))
