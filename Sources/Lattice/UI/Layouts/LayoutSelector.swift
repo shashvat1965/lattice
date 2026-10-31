@@ -23,9 +23,9 @@ struct LayoutSelector: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: LatticeTheme.Spacing.xs) {
-            ForEach(LayoutKind.allCases) { kind in
-                VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: LatticeTheme.Spacing.xs) {
+                ForEach(LayoutKind.allCases) { kind in
                     LayoutChoiceCard(
                         kind: kind,
                         count: windowCount,
@@ -33,13 +33,16 @@ struct LayoutSelector: View {
                     ) {
                         model.setLayout(kind)
                     }
-
-                    if kind == selected && kind.hasTuning {
-                        LayoutTuning(kind: kind, model: model, prefs: prefs)
-                            .transition(.opacity)
-                    }
+                    .frame(maxWidth: .infinity)
                 }
-                .frame(maxWidth: .infinity)
+            }
+
+            // The selected layout's controls sit on their own full-width row: inside a card
+            // column they were narrower than their labels and truncated.
+            if selected.hasTuning {
+                LayoutTuning(kind: selected, model: model, prefs: prefs)
+                    .padding(.top, LatticeTheme.Spacing.xs)
+                    .transition(.opacity)
             }
         }
         .animation(LatticeTheme.animation, value: selected)
@@ -105,24 +108,30 @@ private struct LayoutTuning: View {
     @ObservedObject var prefs: LayoutsPreferences
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: LatticeTheme.Spacing.xxs) {
-                Text(label)
-                    .font(.system(size: 10.5, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
+        HStack(spacing: LatticeTheme.Spacing.sm) {
+            Text(label)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .frame(width: 120, alignment: .leading)
+
+            control
+                .frame(maxWidth: 260)
+
+            // A menu already shows its own value; only sliders need the readout.
+            if kind != .grid {
                 Text(valueText)
-                    .font(.system(size: 10.5, design: .monospaced))
+                    .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .contentTransition(.numericText())
                     .lineLimit(1)
+                    .frame(width: 70, alignment: .trailing)
             }
 
-            control
+            Spacer(minLength: 0)
         }
-        .padding(.top, 6)
-        .padding(.horizontal, 2)
+        .padding(.horizontal, LatticeTheme.gutter)
+        .padding(.vertical, LatticeTheme.Spacing.xs)
         .animation(LatticeTheme.animation, value: valueText)
     }
 

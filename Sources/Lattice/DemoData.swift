@@ -21,11 +21,14 @@ enum DemoData {
             ?? model.focusedSpace
         let area = display.visibleFrame.insetBy(dx: 8, dy: 8)
 
+        // Fixtures must obey the same gaps the tiler would apply, or the map looks like the
+        // layout ignores the gap setting.
+        let gap = max(0, PreferencesStore.shared.prefs.gap)
         func rect(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) -> CGRect {
             CGRect(x: area.minX + area.width * x,
                    y: area.minY + area.height * y,
                    width: area.width * w,
-                   height: area.height * h)
+                   height: area.height * h).insetBy(dx: gap / 2, dy: gap / 2)
         }
 
         let fixtures: [(String, String, String, CGRect)] = [

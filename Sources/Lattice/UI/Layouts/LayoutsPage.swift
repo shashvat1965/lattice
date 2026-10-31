@@ -29,6 +29,7 @@ struct LayoutsPage: View {
             LayoutInsertionSection(prefs: prefs)
             LayoutSpacesSection(model: model, prefs: prefs)
             footer
+                .padding(.bottom, LatticeTheme.Spacing.xl)
         }
         .frame(maxWidth: LatticeTheme.contentMaxWidth, alignment: .leading)
         .padding(.horizontal, LatticeTheme.gutter)

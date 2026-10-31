@@ -39,7 +39,7 @@ struct LayoutSpaceSection: View {
                         )
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(minWidth: 340, maxWidth: .infinity, alignment: .leading)
 
                 Rectangle()
                     .fill(Color.latticeHairline)
@@ -54,7 +54,7 @@ struct LayoutSpaceSection: View {
                     respectMenuBar: prefs.prefs.respectMenuBar,
                     respectDock: prefs.prefs.respectDock
                 )
-                .frame(width: 232, height: 116)
+                .frame(width: 204, height: 104)
                 .padding(.horizontal, LatticeTheme.Spacing.md)
                 .padding(.vertical, LatticeTheme.Spacing.sm)
                 .accessibilityLabel("Four windows with the current gaps and padding")
