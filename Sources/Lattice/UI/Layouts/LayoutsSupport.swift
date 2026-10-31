@@ -120,7 +120,7 @@ struct LayoutsSlider: View {
 
     var body: some View {
         HStack(spacing: LatticeTheme.Spacing.xs) {
-            Slider(value: $value, in: range, step: step)
+            LatticeSlider(value: $value, in: range, step: step)
                 .frame(width: 184)
                 .accessibilityLabel(label)
                 .accessibilityValue(valueText(value))
@@ -144,10 +144,7 @@ struct LayoutsToggle: View {
     var label: String
 
     var body: some View {
-        Toggle("", isOn: $isOn)
-            .labelsHidden()
-            .toggleStyle(.switch)
-            .controlSize(.small)
+        LatticeSwitch(isOn: $isOn)
             .accessibilityLabel(label)
     }
 }
@@ -162,13 +159,10 @@ struct LayoutsLayoutPicker: View {
     var width: CGFloat = 132
 
     var body: some View {
-        Picker(label, selection: $selection) {
-            ForEach(LayoutKind.allCases) { kind in
-                Text(kind.title).tag(kind)
-            }
-        }
-        .pickerStyle(.menu)
-        .labelsHidden()
+        LatticeMenuButton(
+            selection: $selection,
+            options: LayoutKind.allCases.map { (value: $0, title: $0.title) }
+        )
         .frame(width: width)
         .accessibilityLabel(label)
         .accessibilityValue(selection.title)

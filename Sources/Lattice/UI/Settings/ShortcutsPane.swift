@@ -140,13 +140,10 @@ struct ShortcutsPane: View {
                 searchField
                     .frame(maxWidth: 300)
                 Spacer(minLength: LatticeTheme.Spacing.xs)
-                Picker("Show", selection: $filter) {
-                    ForEach(BindingFilter.allCases) { option in
-                        Text(option.rawValue).tag(option)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
+                LatticeSegmented(
+                    selection: $filter,
+                    options: BindingFilter.allCases.map { (value: $0, title: $0.rawValue) }
+                )
                 .frame(width: 196)
                 .accessibilityLabel("Filter shortcuts")
             }

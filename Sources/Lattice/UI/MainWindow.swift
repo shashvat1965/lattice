@@ -223,13 +223,10 @@ struct MainWindowView: View {
                 Text("Tiling")
                     .font(.system(size: 12, weight: .medium))
                 Spacer(minLength: 0)
-                Toggle("Tiling", isOn: Binding(
+                LatticeSwitch(isOn: Binding(
                     get: { model.isEnabled },
                     set: { model.setEnabled($0) }
                 ))
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .controlSize(.small)
                 .help(model.isEnabled ? "Pause tiling" : "Resume tiling")
             }
             .padding(.horizontal, LatticeTheme.Spacing.sm)

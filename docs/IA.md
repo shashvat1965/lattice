@@ -66,3 +66,28 @@ HUD toast with the four chords worth knowing.
 
 ## Missing command to add
 `moveToNextDisplay` / `moveToPreviousDisplay` — the only job with no surface at all today.
+
+
+---
+
+## Shipped in this pass
+
+- Sidebar 7 → **4** rows (Overview · Layouts · Shortcuts · Settings); `Spaces`, `Apps` and `About` no
+  longer occupy a row.
+- Overview absorbs Spaces: per-display Space strip, map, floating chips, 3 recents + Undo,
+  `Follow a window to its Space`. Control count 15 → 4.
+- Layouts absorbs the layout tuning, gaps + preview, limits, insertion, and the per-Space list
+  including `New Spaces start with` and `Add a Space…`.
+- Settings 10 sections → **7** (General · Displays · Apps · Pointer & dragging · Window border ·
+  Motion · Advanced), Apps folded in as one list, About folded into General's footer.
+- System apps collapsed to one "8 system apps are always floating" row.
+- First run is one 440×420 window with a single permission row and one escape hatch.
+- AppKit switches/sliders/segmented pickers replaced with drawn equivalents so the UI is
+  consistent and capturable.
+
+## Known rough edges (next pass)
+
+- Overview's map card does not stretch to the page width.
+- Shortcuts still uses `List`; it is the one page that cannot be captured offscreen yet.
+- The Apps search field and the border colour row are the last AppKit-backed controls, so they
+  appear as placeholders in the offscreen renders (they are correct in the running app).

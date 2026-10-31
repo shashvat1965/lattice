@@ -253,17 +253,14 @@ private struct DisplayOverrideSlider: View {
     var body: some View {
         SettingRow(title, showsDivider: true) {
             HStack(spacing: LatticeTheme.Spacing.xs) {
-                Toggle("", isOn: Binding(
+                LatticeSwitch(isOn: Binding(
                     get: { isCustom },
                     set: { setCustom($0) }
                 ))
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .controlSize(.mini)
                 .accessibilityLabel("Override \(title.lowercased()) on this display")
 
                 if isCustom {
-                    Slider(value: $value, in: range, step: 1)
+                    LatticeSlider(value: $value, in: range, step: 1)
                         .frame(width: 130)
                         .accessibilityLabel(title)
                         .accessibilityValue("\(Int(value)) pt")

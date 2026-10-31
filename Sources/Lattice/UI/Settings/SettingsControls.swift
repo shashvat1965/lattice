@@ -72,10 +72,7 @@ struct SettingsToggleRow: View {
 
     var body: some View {
         SettingRow(title, subtitle: subtitle, showsDivider: showsDivider) {
-            Toggle("", isOn: $isOn)
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .controlSize(.small)
+            LatticeSwitch(isOn: $isOn)
                 .disabled(!isEnabled)
                 .accessibilityLabel(title)
         }
@@ -100,7 +97,7 @@ struct SettingsSliderRow: View {
     var body: some View {
         SettingRow(title, subtitle: subtitle, showsDivider: showsDivider) {
             HStack(spacing: LatticeTheme.Spacing.xs) {
-                Slider(value: $value, in: range, step: step)
+                LatticeSlider(value: $value, in: range, step: step)
                     .frame(width: 184)
                     .disabled(!isEnabled)
                     .accessibilityLabel(title)
@@ -144,13 +141,10 @@ struct SettingsPickerRow<Value: Hashable>: View {
 
     var body: some View {
         SettingRow(title, subtitle: subtitle, showsDivider: showsDivider) {
-            Picker(title, selection: $selection) {
-                ForEach(options) { option in
-                    Text(option.title).tag(option.value)
-                }
-            }
-            .pickerStyle(.menu)
-            .labelsHidden()
+            LatticeMenuButton(
+                selection: $selection,
+                options: options.map { (value: $0.value, title: $0.title) }
+            )
             .frame(width: width)
             .disabled(!isEnabled)
             .accessibilityLabel(title)
@@ -172,13 +166,10 @@ struct SettingsSegmentedRow<Value: Hashable>: View {
 
     var body: some View {
         SettingRow(title, subtitle: subtitle, showsDivider: showsDivider) {
-            Picker(title, selection: $selection) {
-                ForEach(options) { option in
-                    Text(option.title).tag(option.value)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
+            LatticeSegmented(
+                selection: $selection,
+                options: options.map { (value: $0.value, title: $0.title) }
+            )
             .frame(width: width)
             .disabled(!isEnabled)
             .accessibilityLabel(title)

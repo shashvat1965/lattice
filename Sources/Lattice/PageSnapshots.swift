@@ -14,6 +14,7 @@ enum PageSnapshots {
         guard ProcessInfo.processInfo.environment["LATTICE_SHOTS"] != nil else { return }
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let model = AppModel.shared
+        Log.info("SHOTS state: demo=\(model.isDemo) spaces=\(model.spaces.count) windowsBySpace=\(model.windowsBySpace.mapValues(\.count)) focusedSpace=\(model.focusedSpace)")
         let width: CGFloat = 1000
 
         shot(AnyView(Overview(model: model).content.frame(maxWidth: .infinity)), width: width, name: "01-overview", dir: directory)
@@ -26,6 +27,9 @@ enum PageSnapshots {
     }
 
     private static func shot<V: View>(_ view: V, width: CGFloat, name: String, dir: URL) {
+        // `fixedSize` gives flexible rows their ideal height, so a section cannot swallow the
+        // whole canvas just because the render frame is tall.
+        let view = view.fixedSize(horizontal: false, vertical: true)
         // Render tall, then crop to the last row that actually has pixels: `fittingSize` on a
         // detached NSHostingView under-reports SwiftUI content height.
         let tall: CGFloat = 2800

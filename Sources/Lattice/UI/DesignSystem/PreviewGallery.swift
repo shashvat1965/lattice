@@ -186,20 +186,18 @@ struct PreviewGallery: View {
             Card(padding: 0) {
                 VStack(spacing: 0) {
                     SettingRow("Show menu bar icon", subtitle: "Uses the real switch style.") {
-                        Toggle("", isOn: $toggleSample)
-                            .labelsHidden()
-                            .toggleStyle(.switch)
-                            .controlSize(.small)
+                        LatticeSwitch(isOn: $toggleSample)
                     }
                     LatticeDivider()
                     SettingRow("Animation speed") {
-                        Picker("", selection: $pickerSample) {
-                            Text("Fast").tag(0)
-                            Text("Standard").tag(1)
-                            Text("Slow").tag(2)
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
+                        LatticeSegmented(
+                            selection: $pickerSample,
+                            options: [
+                                (value: 0, title: "Fast"),
+                                (value: 1, title: "Standard"),
+                                (value: 2, title: "Slow"),
+                            ]
+                        )
                         .frame(width: 200)
                     }
                     LatticeDivider()

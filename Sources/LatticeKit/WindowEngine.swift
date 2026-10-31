@@ -455,6 +455,12 @@ public final class WindowEngine {
         )
     }
 
+    /// Design-review fixtures: pretend these windows exist, with no AX elements behind them.
+    /// Everything downstream (floating rules, ordering) then behaves exactly as it would live.
+    public func installFixtures(_ fixtures: [WindowID: ManagedWindow]) {
+        for (id, window) in fixtures { windows[id] = window }
+    }
+
     public func windows(on space: SpaceID) -> [ManagedWindow] {
         windows.values
             .filter { $0.space == space && !$0.isMinimized && !$0.isFullscreen }

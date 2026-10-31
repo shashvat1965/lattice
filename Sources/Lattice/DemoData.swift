@@ -11,7 +11,10 @@ enum DemoData {
 
     static func apply(to model: AppModel) {
         guard isEnabled else { return }
-        guard let display = model.displays.first else { return }
+        guard let display = model.displays.first else {
+            Log.error("DEMO: no displays yet")
+            return
+        }
         // Use the Space WindowServer says is showing on that display, so the fixtures land in
         // the bucket the UI actually reads.
         let space = model.spaces.first(where: { $0.display == display.id })?.current
@@ -66,6 +69,7 @@ enum DemoData {
                                          role: kAXWindowRole as String,
                                          subrole: kAXStandardWindowSubrole as String)
 
+        Log.info("DEMO applying \(windows.count) windows to space \(space) display \(display.id)")
         model.installDemoWindows(windows, order: [WindowID(9000), WindowID(9001), WindowID(9002), WindowID(9003)])
         model.recentActions = ["Focus Left", "Columns", "Send to Space 2"]
     }

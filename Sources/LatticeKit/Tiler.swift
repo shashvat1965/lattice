@@ -799,6 +799,11 @@ public final class Tiler {
         return size
     }
 
+    /// Design-review fixtures only: adopt a tile order for Space with no AX windows behind it.
+    public func adoptDemoOrder(_ ids: [WindowID], on space: SpaceID) {
+        order[space] = ids
+    }
+
     /// Places a dragged window into a snapped rectangle and lets the rest of the Space reflow.
     /// The window becomes floating so the tiled layout never fights the user's explicit choice.
     public func snapWindow(_ id: WindowID, to rect: CGRect, on space: SpaceID) {

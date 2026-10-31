@@ -221,11 +221,13 @@ public final class AppModel: ObservableObject {
     public func installDemoWindows(_ windows: [WindowID: ManagedWindow], order: [WindowID]) {
         demoWindows = windows
         demodOrder = order
+        engine.installFixtures(windows)
         var map: [SpaceID: [ManagedWindow]] = [:]
         for window in windows.values {
             map[window.space, default: []].append(window)
         }
         windowsBySpace = map
+        for space in map.keys { tiler.adoptDemoOrder(map[space]?.map(\.id) ?? [], on: space) }
         focusedWindow = windows[order.first ?? WindowID(0)]
         accessibilityGranted = true
         objectWillChange.send()

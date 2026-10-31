@@ -32,6 +32,7 @@ struct Overview: View {
                 blockedState
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .frame(maxWidth: LatticeTheme.contentMaxWidth, alignment: .leading)
         .padding(.horizontal, LatticeTheme.gutter)
         .padding(.top, LatticeTheme.Spacing.lg)
@@ -118,7 +119,7 @@ struct Overview: View {
                 prefsRevision &+= 1
             }
         ))
-        .toggleStyle(.switch)
+        .toggleStyle(.latticeSwitch)
         .controlSize(.small)
         .font(.system(size: 12))
         .fixedSize()
@@ -150,6 +151,7 @@ struct Overview: View {
                     mapCard(for: display)
                 }
             }
+            .frame(maxWidth: .infinity)
         }
     }
 
@@ -180,8 +182,8 @@ struct Overview: View {
                     onDontTile: { dontTileApp($0) },
                     onSend: { window, space in send(window, to: space, on: display.id) }
                 )
-                .aspectRatio(max(0.6, display.frame.width / max(1, display.frame.height)),
-                             contentMode: .fit)
+                .frame(height: 380)
+                .frame(maxWidth: .infinity)
                 .padding(.horizontal, LatticeTheme.Spacing.sm)
                 .padding(.top, entry == nil ? LatticeTheme.Spacing.sm : 0)
                 .padding(.bottom, LatticeTheme.Spacing.sm)
@@ -194,7 +196,30 @@ struct Overview: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity)
         .accessibilityElement(children: .contain)
+    }
+
+    private var menuBridge: LayoutMenuBridge { LayoutMenuBridge.shared }
+
+    /// Pops a real NSMenu at the pointer. A SwiftUI `Menu` is AppKit-backed and cannot be
+    /// captured by the offscreen renderer; this control has to look right in both.
+    private func popUpLayoutMenu(for space: SpaceID, from number: Int) {
+        let menu = NSMenu()
+        for kind in LayoutKind.allCases {
+            let item = NSMenuItem(title: kind.title, action: #selector(LayoutMenuBridge.pick(_:)), keyEquivalent: "")
+            item.target = menuBridge
+            item.state = kind == model.layout(for: space) ? .on : .off
+            item.representedObject = LayoutMenuPayload(space: space, kind: kind)
+            menu.addItem(item)
+        }
+        menu.addItem(.separator())
+        let clear = NSMenuItem(title: "Use the default layout", action: #selector(LayoutMenuBridge.clearOverride(_:)), keyEquivalent: "")
+        clear.target = menuBridge
+        clear.isEnabled = PreferencesStore.shared.prefs.hasOwnLayout(space)
+        clear.representedObject = LayoutMenuPayload(space: space, kind: model.layout(for: space))
+        menu.addItem(clear)
+        menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
     }
 
     private func displayHeader(_ display: DisplayInfo) -> some View {
@@ -279,27 +304,18 @@ struct Overview: View {
             .accessibilityLabel("Space \(number), \(layout.title)\(isCurrent ? ", current" : "")")
             .accessibilityAddTraits(isCurrent ? [.isSelected] : [])
 
-            Menu {
-                Picker("Layout", selection: Binding(
-                    get: { layout },
-                    set: { applyLayout($0, to: space) }
-                )) {
-                    ForEach(LayoutKind.allCases) { kind in
-                        Text(kind.title).tag(kind)
-                    }
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
+            Button {
+                popUpLayoutMenu(for: space, from: number)
             } label: {
                 Image(systemName: layout.symbol)
                     .font(.system(size: 9.5, weight: .medium))
                     .foregroundStyle(isCurrent ? Color.white.opacity(0.9) : Color.secondary)
-                    .padding(.leading, 3)
-                    .padding(.trailing, 8)
-                    .padding(.vertical, 4)
+                    .frame(width: 16, height: 16)
                     .contentShape(Rectangle())
             }
-            .menuStyle(.borderlessButton)
+            .buttonStyle(.plain)
+            .help("Change this Space's layout")
+            .accessibilityLabel("Layout for Space \(number): \(layout.title)")
             .menuIndicator(.hidden)
             .fixedSize()
             .help("Layout for Space \(number)")
@@ -335,7 +351,6 @@ struct Overview: View {
                 .tracking(0.6)
                 .foregroundStyle(.tertiary)
 
-            ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
                     ForEach(floating) { window in
                         Button {
@@ -361,7 +376,6 @@ struct Overview: View {
                         .help(window.title.isEmpty ? window.appName : window.title)
                         .accessibilityLabel("\(window.appName), floating")
                     }
-                }
             }
         }
     }
@@ -452,7 +466,7 @@ struct Overview: View {
                         Label("Undo", systemImage: "arrow.uturn.backward")
                             .font(.system(size: 11))
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.plain)
                     .controlSize(.small)
                 }
             }
@@ -775,5 +789,29 @@ private struct MapWindowTile: View {
 
     private var helpText: String {
         window.title.isEmpty ? window.appName : "\(window.appName) — \(window.title)"
+    }
+}
+
+// MARK: - Layout menu bridge
+
+struct LayoutMenuPayload {
+    var space: SpaceID
+    var kind: LayoutKind
+}
+
+@MainActor
+final class LayoutMenuBridge: NSObject {
+    static let shared = LayoutMenuBridge()
+
+    @objc func pick(_ sender: NSMenuItem) {
+        guard let payload = sender.representedObject as? LayoutMenuPayload else { return }
+        AppModel.shared.setLayout(payload.kind, for: payload.space)
+    }
+
+    @objc func clearOverride(_ sender: NSMenuItem) {
+        guard let payload = sender.representedObject as? LayoutMenuPayload else { return }
+        PreferencesStore.shared.update { $0.spaceLayouts.removeValue(forKey: String(payload.space.raw)) }
+        AppModel.shared.syncLayoutWithFocusedSpace()
+        AppModel.shared.tiler.reconcile()
     }
 }

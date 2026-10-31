@@ -85,6 +85,28 @@ struct SettingsAppsSection: View {
             ForEach(Array(addCandidates.enumerated()), id: \.element.id) { index, app in
                 addRow(app, showsDivider: index < addCandidates.count - 1)
             }
+
+            if systemRuleCount > 0, trimmedQuery.isEmpty {
+                SettingsContentRow(showsDivider: false) {
+                    Button {
+                        showsSystemApps.toggle()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: showsSystemApps ? "chevron.down" : "chevron.right")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(.tertiary)
+                            Text(showsSystemApps
+                                 ? "Hide \(systemRuleCount) system apps"
+                                 : "\(systemRuleCount) system apps are always floating")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
         }
         .sheet(item: $editing) { draft in
             AppRuleEditor(
@@ -301,14 +323,28 @@ struct SettingsAppsSection: View {
         query.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// macOS's own background apps are always floating; listing nine of them by default is
+    /// noise. They are searchable, and they appear when the user asks for system apps.
+    @State private var showsSystemApps = false
+
+    private var isSystemRule: (AppRuleDraft) -> Bool {
+        { $0.bundleID.hasPrefix("com.apple.") }
+    }
+
     private var filteredRules: [AppRuleDraft] {
         let needle = trimmedQuery.lowercased()
-        guard !needle.isEmpty else { return allRules }
+        guard !needle.isEmpty else {
+            return showsSystemApps ? allRules : allRules.filter { !isSystemRule($0) }
+        }
         return allRules.filter { draft in
             draft.name.lowercased().contains(needle)
                 || draft.bundleID.lowercased().contains(needle)
                 || (draft.titleContains ?? "").lowercased().contains(needle)
         }
+    }
+
+    private var systemRuleCount: Int {
+        allRules.filter(isSystemRule).count
     }
 
     /// Apps that match the search but have no rule yet. Nothing is listed until you type.
@@ -565,12 +601,12 @@ private struct AppRuleEditor: View {
         Form {
             Section {
                 Toggle("Float this app", isOn: $float)
-                    .toggleStyle(.switch)
+                    .toggleStyle(.latticeSwitch)
                     .disabled(unmanaged)
                     .accessibilityLabel("Float \(draft.name)")
 
                 Toggle("Leave this app alone", isOn: $unmanaged)
-                    .toggleStyle(.switch)
+                    .toggleStyle(.latticeSwitch)
                     .accessibilityLabel("Leave \(draft.name) alone")
             } header: {
                 Text("Behaviour")

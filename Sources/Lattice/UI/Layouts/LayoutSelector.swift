@@ -130,25 +130,19 @@ private struct LayoutTuning: View {
     private var control: some View {
         switch kind {
         case .master:
-            Slider(value: masterRatio, in: 0.40...0.80, step: 0.01)
-                .controlSize(.small)
+            LatticeSlider(value: masterRatio, in: 0.40...0.80, step: 0.01)
                 .accessibilityLabel("Master share")
                 .accessibilityValue(valueText)
         case .stack:
-            Slider(value: stackPeek, in: 0...40, step: 1)
-                .controlSize(.small)
+            LatticeSlider(value: stackPeek, in: 0...40, step: 1)
                 .accessibilityLabel("Stack peek")
                 .accessibilityValue(valueText)
         case .grid:
-            Picker("Columns", selection: gridColumns) {
-                Text("Automatic").tag(0)
-                ForEach(1...8, id: \.self) { count in
-                    Text("\(count)").tag(count)
-                }
-            }
-            .pickerStyle(.menu)
-            .labelsHidden()
-            .controlSize(.small)
+            LatticeMenuButton(
+                selection: gridColumns,
+                options: [(value: 0, title: "Automatic")]
+                    + (1...8).map { (value: $0, title: "\($0)") }
+            )
             .frame(maxWidth: .infinity)
             .accessibilityLabel("Grid columns")
             .accessibilityValue(valueText)

@@ -46,13 +46,10 @@ struct LayoutInsertionSection: View {
     var body: some View {
         LayoutsSection("When a window opens") {
             LayoutsRow("New window position") {
-                Picker("New window position", selection: prefs.binding(\.insertionPolicy)) {
-                    ForEach(InsertionPolicy.allCases, id: \.self) { policy in
-                        Text(policy.title).tag(policy)
-                    }
-                }
-                .pickerStyle(.menu)
-                .labelsHidden()
+                LatticeMenuButton(
+                    selection: prefs.binding(\.insertionPolicy),
+                    options: InsertionPolicy.allCases.map { (value: $0, title: $0.title) }
+                )
                 .frame(width: 210)
                 .accessibilityLabel("New window position")
             }
