@@ -20,6 +20,7 @@ enum PageSnapshots {
         shot(AnyView(Overview(model: model).content.frame(maxWidth: .infinity)), width: width, name: "01-overview", dir: directory)
         shot(AnyView(LayoutsPage(model: model).content.frame(maxWidth: .infinity)), width: width, name: "02-layouts", dir: directory)
         shot(AnyView(SettingsPane().content.frame(maxWidth: .infinity)), width: width, name: "04-settings", dir: directory)
+        shot(AnyView(ShortcutsPane().content.frame(maxWidth: .infinity)), width: width, name: "03-shortcuts", dir: directory)
         shot(AnyView(MenuBarPanel(model: model, dismiss: {}).frame(width: 340)), width: 340, name: "05-menu-bar", dir: directory)
 
         Log.info("SHOTS done → \(directory.path)")

@@ -72,11 +72,8 @@ struct ShortcutsPane: View {
     @State private var hotkeyTick = 0
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            LatticeDivider()
-            spaceKeysSection
-            shortcutList
+        ScrollView {
+            content
         }
         .background(Color.latticeCanvas)
         .onAppear {
@@ -350,34 +347,48 @@ struct ShortcutsPane: View {
 
     // MARK: List
 
-    private var shortcutList: some View {
-        List {
-            ForEach(sections) { section in
-                Section {
-                    ForEach(section.commands) { command in
-                        shortcutRow(command)
+    /// Rendered without a ScrollView so the page can be captured offscreen.
+    @ViewBuilder var content: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            LatticeDivider()
+            spaceKeysSection
+            shortcutList
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
 
-                        if let pending, pending.command == command {
-                            conflictRow(pending)
-                        }
+    private var shortcutList: some View {
+        LazyVStack(alignment: .leading, spacing: 0) {
+            ForEach(sections) { section in
+                HStack(alignment: .firstTextBaseline, spacing: LatticeTheme.Spacing.xs) {
+                    Text(section.category.title)
+                        .latticeSectionHeader()
+                    Text("\(section.commands.count)")
+                        .font(.system(size: 11).monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                    Spacer(minLength: 0)
+                    Text("Shortcut")
+                        .latticeSectionHeader()
+                        .padding(.trailing, 34)
+                }
+                .padding(.horizontal, LatticeTheme.gutter)
+                .padding(.top, LatticeTheme.Spacing.lg)
+                .padding(.bottom, LatticeTheme.Spacing.xxs)
+
+                ForEach(section.commands) { command in
+                    shortcutRow(command)
+                        .padding(.horizontal, LatticeTheme.gutter)
+
+                    if let pending, pending.command == command {
+                        conflictRow(pending)
+                            .padding(.horizontal, LatticeTheme.gutter)
                     }
-                } header: {
-                    HStack(alignment: .firstTextBaseline, spacing: LatticeTheme.Spacing.xs) {
-                        Text(section.category.title)
-                            .latticeSectionHeader()
-                        Text("\(section.commands.count)")
-                            .font(.system(size: 11).monospacedDigit())
-                            .foregroundStyle(.tertiary)
-                        Spacer(minLength: 0)
-                        Text("Shortcut")
-                            .latticeSectionHeader()
-                            .padding(.trailing, 30)
-                    }
-                    .textCase(nil)
+
+                    LatticeDivider(insetLeading: LatticeTheme.gutter)
                 }
             }
         }
-        .listStyle(.inset)
         .overlay {
             if sections.isEmpty {
                 EmptyState(

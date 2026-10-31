@@ -24,6 +24,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppDelegate.shared = self
         model.bootstrap()
+        // Debug: open straight to a page, so a broken page can be reproduced without clicking.
+        if let raw = ProcessInfo.processInfo.environment["LATTICE_TAB"], let tab = MainTab(rawValue: raw) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.showMainWindow(tab: tab) }
+        }
         // Fixtures come after bootstrap so the permission state the renderer sees is ours.
         DemoData.apply(to: model)
         ControlServer.shared.start(model: model)
