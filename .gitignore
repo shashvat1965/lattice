@@ -1,0 +1,12 @@
+# SwiftPM
+.build/
+.build-*/
+build/
+.swiftpm/
+*.xcodeproj
+
+# Signing material
+.signing/
+
+# macOS
+.DS_Store
