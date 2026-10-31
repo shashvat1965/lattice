@@ -87,6 +87,58 @@ enum RenderProbe {
             .background(Color(nsColor: .windowBackgroundColor))
         ), size: CGSize(width: 420, height: 220), dir: dir)
 
+        probe("cards", AnyView(
+            VStack(alignment: .leading, spacing: 12) {
+                Text("plain")
+                    .font(.system(size: 11))
+                Card(padding: 0) {
+                    Rectangle().fill(Color.red).frame(height: 40)
+                }
+
+                Text("geometry")
+                    .font(.system(size: 11))
+                Card(padding: 0) {
+                    GeometryReader { geo in
+                        Rectangle().fill(Color.blue)
+                            .frame(width: geo.size.width, height: 40)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 40, maxHeight: 40)
+                }
+
+                Text("geometry+inner")
+                    .font(.system(size: 11))
+                Card(padding: 0) {
+                    GeometryReader { geo in
+                        Rectangle().fill(Color.green)
+                            .frame(width: geo.size.width, height: 40)
+                            .position(x: geo.size.width / 2, y: 20)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 40, maxHeight: 40)
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.white)
+        ), size: CGSize(width: 600, height: 260), dir: dir)
+
+        probe("chain", AnyView(
+            VStack(alignment: .leading, spacing: 20) {
+                Text("Header").font(.system(size: 22, weight: .semibold))
+                Card(padding: 0) {
+                    Rectangle().fill(Color.red).frame(height: 60)
+                }
+                .overlay(Rectangle().strokeBorder(Color.green, lineWidth: 2))
+                Card(padding: 0) {
+                    Rectangle().fill(Color.blue).frame(height: 60)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.yellow.opacity(0.25))
+            .frame(maxWidth: 1120, alignment: .leading)
+            .padding(.horizontal, 24)
+            .frame(maxWidth: .infinity, alignment: .center)
+        ), size: CGSize(width: 1000, height: 260), dir: dir)
+
         Log.info("PROBE done")
         if ProcessInfo.processInfo.environment["LATTICE_CAPTURE_EXIT"] == "1" { NSApp.terminate(nil) }
     }

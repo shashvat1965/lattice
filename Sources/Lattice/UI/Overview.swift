@@ -140,7 +140,7 @@ struct Overview: View {
             }
         } else if model.displays.count == 1, let display = model.displays.first {
             mapCard(for: display)
-                .frame(maxWidth: 620)
+                .frame(maxWidth: .infinity)
         } else {
             LazyVGrid(
                 columns: [GridItem(.adaptive(minimum: 440, maximum: 640), spacing: LatticeTheme.Spacing.md)],
