@@ -164,6 +164,7 @@ private struct LayoutTuning: View {
         switch kind {
         case .master: return "Master share"
         case .stack: return "Stack peek"
+        case .grid: return "Grid columns"
         default: return "Columns"
         }
     }
