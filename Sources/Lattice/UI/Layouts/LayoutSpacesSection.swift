@@ -9,17 +9,33 @@ struct LayoutSpacesSection: View {
     @ObservedObject var model: AppModel
     @ObservedObject var prefs: LayoutsPreferences
 
+    /// The per-Space rows are a list you rarely edit, so they fold away behind one row that
+    /// still reports how many Spaces exist and how many keep their own layout.
+    @State private var expanded = false
+
     var body: some View {
         LayoutsSection("Spaces") {
             if groups.allSatisfy({ $0.rows.isEmpty }) {
                 noSpacesRow
             } else {
-                ForEach(groups) { group in
-                    groupHeader(group.name)
+                SettingsDisclosureRow(
+                    title: summaryTitle,
+                    subtitle: expanded ? nil : summarySubtitle,
+                    isExpanded: expanded
+                ) {
+                    withAnimation(LatticeTheme.animation) { expanded.toggle() }
+                }
 
-                    ForEach(group.rows) { row in
-                        spaceRow(row)
-                        LatticeDivider(insetLeading: LatticeTheme.Spacing.md)
+                if expanded {
+                    ForEach(groups) { group in
+                        if groups.count > 1 {
+                            groupHeader(group.name)
+                        }
+
+                        ForEach(group.rows) { row in
+                            spaceRow(row)
+                            LatticeDivider(insetLeading: LatticeTheme.Spacing.md)
+                        }
                     }
                 }
             }
@@ -33,6 +49,22 @@ struct LayoutSpacesSection: View {
         } footer: {
             addSpaceRow
         }
+    }
+
+    // MARK: - Summary
+
+    private var allRows: [SpaceRow] { groups.flatMap(\.rows) }
+
+    private var summaryTitle: String {
+        let count = allRows.count
+        return "\(count) \(count == 1 ? "Space" : "Spaces")"
+    }
+
+    private var summarySubtitle: String {
+        let overrides = allRows.filter { prefs.prefs.hasOwnLayout($0.space) }.count
+        let base = overrides == 0 ? "All use the default layout" : "\(overrides) with their own layout"
+        if groups.count > 1 { return "\(base) · \(groups.count) displays" }
+        return base + " · " + (groups.first?.name ?? "")
     }
 
     // MARK: - Rows

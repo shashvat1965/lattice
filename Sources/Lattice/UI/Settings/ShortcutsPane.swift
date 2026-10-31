@@ -263,6 +263,14 @@ struct ShortcutsPane: View {
                     }
                     .padding(.horizontal, 6)
                     .padding(.vertical, 4)
+
+                    if let count = currentSpaceCount, !orphanedKeys.isEmpty {
+                        Text("\(orphanedKeys.count) \(orphanedKeys.count == 1 ? "key points" : "keys point") past this display's \(count) Spaces")
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(.tertiary)
+                            .padding(.horizontal, 8)
+                            .padding(.bottom, 6)
+                    }
                 }
             }
         }
@@ -320,16 +328,16 @@ struct ShortcutsPane: View {
             }
             .frame(height: 26)
 
-            if let count = currentSpaceCount, missing {
-                Text("Display has \(count) Spaces")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .padding(.leading, 2)
-                    .accessibilityLabel("Space \(entry.number) does not exist. This display has \(count) Spaces.")
-            }
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 5)
+    }
+
+    /// Keys pointing at Spaces this display does not have. Reported once under the grid
+    /// rather than repeated under every affected row.
+    private var orphanedKeys: [String] {
+        guard let count = currentSpaceCount else { return [] }
+        return store.prefs.spaceKeys.filter { $0.value > count }.map(\.key)
     }
 
     /// How many user Spaces the display that owns the focused Space has. Fullscreen
@@ -376,7 +384,7 @@ struct ShortcutsPane: View {
                 .padding(.top, LatticeTheme.Spacing.lg)
                 .padding(.bottom, LatticeTheme.Spacing.xxs)
 
-                ForEach(section.commands) { command in
+                ForEach(section.commands.filter { !Self.isSpaceNumberCommand($0) }) { command in
                     shortcutRow(command)
                         .padding(.horizontal, LatticeTheme.gutter)
 
@@ -386,6 +394,21 @@ struct ShortcutsPane: View {
                     }
 
                     LatticeDivider(insetLeading: LatticeTheme.gutter)
+                }
+
+                if section.commands.contains(where: { $0.rawValue.hasPrefix("space") }) {
+                    spaceSummaryRow(
+                        title: "Go to Space",
+                        chords: "⌥ + Space key",
+                        detail: "\(store.prefs.spaceKeys.count) keys set above"
+                    )
+                }
+                if section.commands.contains(where: { $0.rawValue.hasPrefix("moveToSpace") }) {
+                    spaceSummaryRow(
+                        title: "Send to Space",
+                        chords: "⇧⌥ + Space key",
+                        detail: "Moves the focused window"
+                    )
                 }
             }
         }
@@ -410,6 +433,36 @@ struct ShortcutsPane: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             cheatSheetHint
         }
+    }
+
+    private static func isSpaceNumberCommand(_ command: CommandID) -> Bool {
+        command.rawValue.hasPrefix("space") || command.rawValue.hasPrefix("moveToSpace")
+    }
+
+    /// Nine commands that all do the same thing with a different number do not deserve nine
+    /// rows: the mapping lives in the Space keys card above, and this states the pattern.
+    private func spaceSummaryRow(title: String, chords: String, detail: String) -> some View {
+        HStack(spacing: LatticeTheme.Spacing.sm) {
+            Image(systemName: "square.on.square")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.system(size: 13))
+                Text(detail)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer(minLength: LatticeTheme.Spacing.xs)
+            Text(chords)
+                .font(.system(size: 11.5, design: .monospaced))
+                .foregroundStyle(.secondary)
+        }
+        .frame(height: 34)
+        .padding(.horizontal, LatticeTheme.gutter)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title): \(chords). \(detail).")
     }
 
     private func shortcutRow(_ command: CommandID) -> some View {

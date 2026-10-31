@@ -182,8 +182,7 @@ struct Overview: View {
                     onDontTile: { dontTileApp($0) },
                     onSend: { window, space in send(window, to: space, on: display.id) }
                 )
-                .frame(height: 380)
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, minHeight: 380, maxHeight: 380)
                 .padding(.horizontal, LatticeTheme.Spacing.sm)
                 .padding(.top, entry == nil ? LatticeTheme.Spacing.sm : 0)
                 .padding(.bottom, LatticeTheme.Spacing.sm)
@@ -196,7 +195,7 @@ struct Overview: View {
                 }
             }
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
     }
 

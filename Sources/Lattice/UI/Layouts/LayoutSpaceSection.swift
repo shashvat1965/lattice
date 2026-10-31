@@ -62,24 +62,8 @@ struct LayoutSpaceSection: View {
 
             LatticeDivider()
 
-            LayoutsRow("Keep clear of the menu bar") {
-                LayoutsToggle(
-                    isOn: prefs.binding(\.respectMenuBar),
-                    label: "Keep clear of the menu bar"
-                )
-            }
-
-            LayoutsRow("Keep clear of the Dock") {
-                LayoutsToggle(
-                    isOn: prefs.binding(\.respectDock),
-                    label: "Keep clear of the Dock"
-                )
-            }
-
-            LatticeDivider()
-
             LayoutsDisclosureRow(
-                title: "Per-edge padding",
+                title: "Screen edges",
                 subtitle: edgeSummary,
                 isExpanded: showsEdges,
                 showsDivider: showsEdges
@@ -88,6 +72,20 @@ struct LayoutSpaceSection: View {
             }
 
             if showsEdges {
+                LayoutsRow("Keep clear of the menu bar") {
+                    LayoutsToggle(
+                        isOn: prefs.binding(\.respectMenuBar),
+                        label: "Keep clear of the menu bar"
+                    )
+                }
+
+                LayoutsRow("Keep clear of the Dock") {
+                    LayoutsToggle(
+                        isOn: prefs.binding(\.respectDock),
+                        label: "Keep clear of the Dock"
+                    )
+                }
+
                 LayoutsRow("Top") {
                     LayoutsSlider(
                         value: point(\.edges.top),
@@ -137,7 +135,12 @@ struct LayoutSpaceSection: View {
     /// Only shown when something is set, so the row carries information rather than a promise.
     private var edgeSummary: String? {
         let edges = prefs.prefs.edges
-        guard edges != Margin() else { return nil }
+        if edges == Margin() {
+            let menu = prefs.prefs.respectMenuBar ? "menu bar" : nil
+            let dock = prefs.prefs.respectDock ? "Dock" : nil
+            let clear = [menu, dock].compactMap { $0 }.joined(separator: " + ")
+            return clear.isEmpty ? "Nothing kept clear" : "Keeps clear of the \(clear)"
+        }
         return "Top \(Int(edges.top)) · Leading \(Int(edges.leading)) · Bottom \(Int(edges.bottom)) · Trailing \(Int(edges.trailing)) pt"
     }
 
