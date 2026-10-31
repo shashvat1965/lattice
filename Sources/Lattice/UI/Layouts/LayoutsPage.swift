@@ -25,8 +25,7 @@ struct LayoutsPage: View {
             header
             LayoutSelector(model: model, prefs: prefs)
             LayoutSpaceSection(model: model, prefs: prefs)
-            LayoutLimitsSection(prefs: prefs)
-            LayoutInsertionSection(prefs: prefs)
+            LayoutFineTuning(prefs: prefs)
             LayoutSpacesSection(model: model, prefs: prefs)
             footer
                 .padding(.bottom, LatticeTheme.Spacing.xl)
@@ -56,5 +55,42 @@ struct LayoutsPage: View {
         Text("⌥Space cycles layouts.")
             .font(.system(size: 11))
             .foregroundStyle(.secondary)
+    }
+}
+
+// MARK: - Fine tuning
+
+/// Limits and new-window behaviour are set once and forgotten, so they live behind one row
+/// instead of taking two sections of the page.
+private struct LayoutFineTuning: View {
+
+    @ObservedObject var prefs: LayoutsPreferences
+    @State private var expanded = false
+
+    private var summary: String {
+        let limit = "\(Int(prefs.prefs.minTiledWidth))×\(Int(prefs.prefs.minTiledHeight)) minimum"
+        let insertion = prefs.prefs.insertionPolicy.title.lowercased()
+        return "\(limit) · new windows \(insertion)"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: LatticeTheme.Spacing.md) {
+            Card(padding: 0) {
+                SettingsDisclosureRow(
+                    title: "Limits and new windows",
+                    subtitle: expanded ? nil : summary,
+                    isExpanded: expanded,
+                    showsDivider: false
+                ) {
+                    withAnimation(LatticeTheme.animation) { expanded.toggle() }
+                }
+            }
+
+            if expanded {
+                LayoutLimitsSection(prefs: prefs)
+                LayoutInsertionSection(prefs: prefs)
+            }
+        }
+        .transition(.opacity)
     }
 }
