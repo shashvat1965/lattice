@@ -51,6 +51,8 @@ public final class WindowEngine {
     private var pendingWrites: [WindowID: PendingWrite] = [:]
     private var writeFailures: [WindowID: Int] = [:]
     private var stubbornUntil: [WindowID: CFAbsoluteTime] = [:]
+    /// Floors we learned from a refused write, for apps that never report AXMinSize.
+    private var learnedMinimums: [WindowID: CGSize] = [:]
     private var stubbornReasons: [WindowID: String] = [:]
     private var loggedSkips: Set<String> = []
 
@@ -360,6 +362,8 @@ public final class WindowEngine {
             kAXSizeAttribute,
             kAXMinimizedAttribute,
             "AXFullScreen",
+            "AXMinSize",
+            "AXMaxSize",
         ])
 
         guard let role = (batch[kAXRoleAttribute] as? String) ?? element.stringAttribute(kAXRoleAttribute) else {
@@ -369,6 +373,15 @@ public final class WindowEngine {
         guard role == (kAXWindowRole as String) else {
             logSkipOnce(wid, "role \(role)", app: app.localizedName)
             return nil
+        }
+
+        let minSize = batch["AXMinSize"].flatMap { value -> CGSize? in
+            guard CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+            return Self.cgSize(from: value as! AXValue)
+        }
+        let maxSize = batch["AXMaxSize"].flatMap { value -> CGSize? in
+            guard CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+            return Self.cgSize(from: value as! AXValue)
         }
 
         let subrole = (batch[kAXSubroleAttribute] as? String)
@@ -436,6 +449,8 @@ public final class WindowEngine {
             isMinimized: minimized,
             role: role,
             subrole: subrole,
+            minSize: minSize,
+            maxSize: maxSize,
             axElement: element
         )
     }
@@ -513,6 +528,8 @@ public final class WindowEngine {
 
     public func focus(_ id: WindowID) {
         guard let window = windows[id], let element = window.axElement else { return }
+        // Who asked for this? Focus theft is invisible without a caller.
+        Log.info("focus -> \(window.appName) / \(id.raw) from \(Thread.callStackSymbols.dropFirst().prefix(3).joined(separator: " <- "))")
         let app = AXUIElementCreateApplication(window.pid)
         AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
         AXUIElementPerformAction(element, kAXRaiseAction as CFString)
@@ -536,6 +553,10 @@ public final class WindowEngine {
     }
 
     // MARK: - Stubborn windows
+
+    /// The smallest size we have actually seen this window accept, learned by watching a
+    /// refused write clamp. `nil` until the app refuses something.
+    public func learnedMinimum(_ id: WindowID) -> CGSize? { learnedMinimums[id] }
 
     public func isStubborn(_ id: WindowID) -> Bool {
         guard let until = stubbornUntil[id] else { return false }
@@ -621,6 +642,9 @@ public final class WindowEngine {
                 pendingWrites[id] = nil
                 writeFailures[id] = 0
                 windows[id]?.frame = actual
+                if let known = learnedMinimums[id], actual.width < known.width - 2 || actual.height < known.height - 2 {
+                    learnedMinimums[id] = nil
+                }
                 continue
             }
 
@@ -644,6 +668,17 @@ public final class WindowEngine {
                 pendingWrites[id] = nil
                 if let actual {
                     windows[id]?.frame = actual
+                    // Learn the app's real floor. Many apps clamp to a minimum they never
+                    // report through AXMinSize; the failed write is the only source of truth.
+                    // Recording it here means the next plan asks for something achievable
+                    // instead of leaving the Space ragged with overlapping windows.
+                    if actual.width > pending.target.width + 1.5 || actual.height > pending.target.height + 1.5 {
+                        let learned = CGSize(width: max(actual.width, windows[id]?.minSize?.width ?? 0),
+                                             height: max(actual.height, windows[id]?.minSize?.height ?? 0))
+                        windows[id]?.minSize = learned
+                        learnedMinimums[id] = learned
+                        Log.info("learned minimum \(Int(learned.width))x\(Int(learned.height)) for \(windows[id]?.appName ?? "?") (window \(id.raw))")
+                    }
                     markStubborn(id, reason: "frame mismatch after 2 writes (wanted \(Self.format(pending.target)) got \(Self.format(actual)))")
                 } else {
                     markStubborn(id, reason: "frame unreadable after 2 writes")
@@ -990,6 +1025,14 @@ public final class WindowEngine {
     private static let getWindowFnCompat: Void = {
         if getWindowFn == nil { Log.error("_AXUIElementGetWindow unavailable; using pid+title hashing") }
     }()
+
+    /// AXValue → CGSize, for the min/max size attributes.
+    static func cgSize(from value: AXValue) -> CGSize? {
+        guard AXValueGetType(value) == .cgSize else { return nil }
+        var size = CGSize.zero
+        guard AXValueGetValue(value, .cgSize, &size), size.width > 0, size.height > 0 else { return nil }
+        return size
+    }
 
     static func windowID(of element: AXUIElement) -> WindowID? {
         _ = getWindowFnCompat

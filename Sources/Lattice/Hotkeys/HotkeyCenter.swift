@@ -25,8 +25,15 @@ final class HotkeyCenter: @unchecked Sendable {
     private var suspended = false
 
     private var eventHandler: EventHandlerRef?
-    private var registrations: [CommandID: EventHotKeyRef] = [:]
-    private var commandForID: [UInt32: CommandID] = [:]
+    /// What a registered chord does.
+    enum Action: Hashable {
+        case command(CommandID)
+        case goToSpace(Int)
+        case sendToSpace(Int)
+    }
+
+    private var registrations: [Action: [EventHotKeyRef]] = [:]
+    private var actionForID: [UInt32: Action] = [:]
     private var nextID: UInt32 = 1
 
     private var lastAppliedBindings: [CommandID: KeyCombo]?
@@ -59,7 +66,8 @@ final class HotkeyCenter: @unchecked Sendable {
         watchPreferences()
         reloadNow()
         // Drag-to-snap is part of the input subsystem and is booted from the same entry point.
-        DragSnapController.shared.start()
+        // `installOnMain` is guaranteed to run on the main thread.
+        MainActor.assumeIsolated { DragSnapController.shared.start() }
     }
 
     /// Re-read `Preferences.bindings` and replace every registration.
@@ -106,15 +114,17 @@ final class HotkeyCenter: @unchecked Sendable {
 
     func unregister(_ command: CommandID) {
         onMain { [weak self] in
-            guard let self, let ref = self.registrations.removeValue(forKey: command) else { return }
-            UnregisterEventHotKey(ref)
-            self.commandForID = self.commandForID.filter { $0.value != command }
+            guard let self else { return }
+            let action = Action.command(command)
+            guard let refs = self.registrations.removeValue(forKey: action) else { return }
+            for ref in refs { UnregisterEventHotKey(ref) }
+            self.actionForID = self.actionForID.filter { $0.value != action }
             self.postChange()
         }
     }
 
     func isRegistered(_ command: CommandID) -> Bool {
-        registrations[command] != nil
+        !(registrations[Action.command(command)] ?? []).isEmpty
     }
 
     // MARK: - Registration
@@ -140,7 +150,8 @@ final class HotkeyCenter: @unchecked Sendable {
         // Settings can trigger a reload before `install` has run; make sure events have a home.
         installEventHandler()
 
-        let bindings = PreferencesStore.shared.prefs.bindings
+        let prefs = PreferencesStore.shared.prefs
+        let bindings = prefs.bindings
         lastAppliedBindings = bindings
 
         guard !suspended else {
@@ -150,21 +161,54 @@ final class HotkeyCenter: @unchecked Sendable {
             return
         }
 
-        var seen: [Binding: CommandID] = [:]
+        struct Candidate {
+            let action: Action
+            let combo: KeyCombo
+            let title: String
+        }
+
+        var candidates: [Candidate] = []
+        for command in CommandID.allCases {
+            if let combo = bindings[command] {
+                candidates.append(Candidate(action: .command(command), combo: combo, title: command.title))
+            }
+            if let combo = prefs.alternateBindings[command] {
+                candidates.append(Candidate(action: .command(command), combo: combo, title: command.title))
+            }
+        }
+        // AeroSpace-style Space keys: ⌥<key> switches, ⇧⌥<key> sends the focused window.
+        for (key, number) in prefs.spaceKeys.sorted(by: { $0.value < $1.value }) {
+            guard (1...9).contains(number) else { continue }
+            candidates.append(Candidate(action: .goToSpace(number),
+                                        combo: KeyCombo(key: key, modifiers: [.option]),
+                                        title: "Go to Space \(number)"))
+            candidates.append(Candidate(action: .sendToSpace(number),
+                                        combo: KeyCombo(key: key, modifiers: [.option, .shift]),
+                                        title: "Send to Space \(number)"))
+        }
+
+        var seen: [Binding: Candidate] = [:]
         var nextConflicts: [CommandID] = []
         var nextReasons: [CommandID: String] = [:]
 
-        for command in CommandID.allCases {
-            guard let combo = bindings[command] else { continue }
+        func recordConflict(_ candidate: Candidate, _ reason: String) {
+            if case .command(let command) = candidate.action {
+                nextConflicts.append(command)
+                nextReasons[command] = reason
+            } else {
+                Log.info("hotkey \(candidate.combo.display) for \(candidate.title) unavailable: \(reason)")
+            }
+        }
+
+        for candidate in candidates {
+            let combo = candidate.combo
             // A binding without ⌃/⌥/⌘ would intercept ordinary typing system-wide.
             guard !combo.modifiers.isDisjoint(with: [.control, .option, .command]) else {
-                nextConflicts.append(command)
-                nextReasons[command] = "Needs ⌃, ⌥ or ⌘"
+                recordConflict(candidate, "Needs ⌃, ⌥ or ⌘")
                 continue
             }
             guard let mapping = HotkeyKeyMap.mapping(for: combo.key) else {
-                nextConflicts.append(command)
-                nextReasons[command] = "This keyboard cannot type “\(combo.key)”"
+                recordConflict(candidate, "This keyboard cannot type “\(combo.key)”")
                 continue
             }
             var modifiers = HotkeyKeyMap.carbonModifiers(for: combo.modifiers)
@@ -173,8 +217,7 @@ final class HotkeyCenter: @unchecked Sendable {
             if mapping.requiresShift { modifiers |= UInt32(shiftKey) }
             let binding = Binding(keyCode: mapping.keyCode, modifiers: modifiers)
             if let owner = seen[binding] {
-                nextConflicts.append(command)
-                nextReasons[command] = "Also assigned to “\(owner.title)”"
+                recordConflict(candidate, "Also assigned to “\(owner.title)”")
                 continue
             }
 
@@ -185,29 +228,29 @@ final class HotkeyCenter: @unchecked Sendable {
             let status = RegisterEventHotKey(UInt32(mapping.keyCode), modifiers, hotKeyID,
                                              GetApplicationEventTarget(), 0, &ref)
             if status == noErr, let ref {
-                registrations[command] = ref
-                commandForID[id] = command
-                seen[binding] = command
+                registrations[candidate.action, default: []].append(ref)
+                actionForID[id] = candidate.action
+                seen[binding] = candidate
             } else {
-                nextConflicts.append(command)
-                nextReasons[command] = status == eventHotKeyExistsErr
+                recordConflict(candidate, status == eventHotKeyExistsErr
                     ? "Already used by another app"
-                    : "Could not register (error \(status))"
-                Log.info("hotkey \(combo.display) for \(command.rawValue) unavailable: \(status)")
+                    : "Could not register (error \(status))")
             }
         }
 
         conflicts = nextConflicts
         conflictReasons = nextReasons
         postChange()
-        Log.info("hotkeys registered \(registrations.count)/\(bindings.count)"
+        Log.info("hotkeys registered \(registrations.values.reduce(0) { $0 + $1.count })/\(candidates.count)"
                  + (nextConflicts.isEmpty ? "" : ", conflicts: \(nextConflicts.map(\.rawValue))"))
     }
 
     private func unregisterAll() {
-        for (_, ref) in registrations { UnregisterEventHotKey(ref) }
+        for refs in registrations.values {
+            for ref in refs { UnregisterEventHotKey(ref) }
+        }
         registrations.removeAll()
-        commandForID.removeAll()
+        actionForID.removeAll()
     }
 
     // MARK: - Carbon handler
@@ -240,8 +283,19 @@ final class HotkeyCenter: @unchecked Sendable {
     /// Main-thread only: look up the command and hand it to the single dispatch funnel.
     @MainActor
     private func dispatch(_ id: UInt32) {
-        guard let command = commandForID[id] else { return }
-        (model ?? AppModel.shared).dispatch(command)
+        guard let action = actionForID[id] else { return }
+        let app = model ?? AppModel.shared
+        // Proof that Carbon delivered the chord: if a shortcut "does nothing", this line is
+        // the difference between "never received" and "received but the action failed".
+        Log.info("hotkey fired: \(action)")
+        switch action {
+        case .command(let command):
+            app.dispatch(command)
+        case .goToSpace(let number):
+            app.goToSpace(number)
+        case .sendToSpace(let number):
+            app.moveFocusedWindowToSpace(number)
+        }
     }
 
     // MARK: - Preferences watching

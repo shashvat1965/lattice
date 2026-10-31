@@ -1,500 +1,176 @@
-import SwiftUI
 import AppKit
+import SwiftUI
 import LatticeKit
 
-// MARK: - OnboardingWindowController
-
-/// The first-run window. Separate from the main window on purpose: it is a short,
-/// linear conversation, not a tab. Dismissible at any time with the close button or Esc.
+/// First run, once. One window, no steps, no counter: a permission row that flips to a check,
+/// an escape hatch, and one line about what Lattice reads.
 @MainActor
-final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
+final class OnboardingWindowController {
 
-    private static var current: OnboardingWindowController?
+    private static var shared: OnboardingWindowController?
+    private let window: NSWindow
 
-    static func show() {
-        if current == nil {
-            current = OnboardingWindowController(model: .shared)
-        }
-        guard let controller = current else { return }
-        NSApp.activate(ignoringOtherApps: true)
-        controller.window?.center()
-        controller.window?.makeKeyAndOrderFront(nil)
+    private init(model: AppModel) {
+        let size = NSSize(width: 440, height: 420)
+        window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
+                          styleMask: [.titled, .closable, .fullSizeContentView],
+                          backing: .buffered,
+                          defer: false)
+        window.title = "Welcome"
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = true
+        window.backgroundColor = .windowBackgroundColor
+        window.isReleasedWhenClosed = false
+        window.contentMinSize = size
+        window.contentMaxSize = size
+        window.collectionBehavior = [.moveToActiveSpace, .managed]
+
+        let root = OnboardingView(
+            model: model,
+            dismiss: { [weak self] in
+                PreferencesStore.shared.update { $0.hasCompletedOnboarding = true }
+                self?.close()
+            }
+        )
+        window.contentViewController = NSHostingController(rootView: root)
+        window.center()
     }
 
-    /// First-run gate: no completed onboarding, or no Accessibility grant yet.
     static func showIfNeeded() {
         let prefs = PreferencesStore.shared.prefs
         guard !prefs.hasCompletedOnboarding || !AppModel.shared.accessibilityGranted else { return }
         show()
     }
 
-    private let model: AppModel
-
-    init(model: AppModel) {
-        self.model = model
-
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 560, height: 600),
-            styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "Welcome to Lattice"
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
-        window.isMovableByWindowBackground = true
-        window.backgroundColor = .clear
-        window.isOpaque = false
-        window.hasShadow = true
-        window.standardWindowButton(.zoomButton)?.isHidden = true
-        // The conversation is a fixed size: nothing inside it reflows with the window.
-        window.contentMinSize = NSSize(width: 560, height: 600)
-        window.contentMaxSize = NSSize(width: 560, height: 600)
-        window.center()
-
-        super.init(window: window)
-
-        window.delegate = self
-        window.contentViewController = NSHostingController(
-            rootView: OnboardingFlow(
-                model: model,
-                onClose: { [weak self] in self?.close() },
-                onOpenShortcuts: { Self.openShortcuts() },
-                onFinish: { [weak self] in
-                    self?.close()
-                    NotificationCenter.default.post(name: .latticeShowMainWindow, object: nil)
-                }
-            )
-        )
+    static func show() {
+        if shared == nil { shared = OnboardingWindowController(model: .shared) }
+        NSApp.activate(ignoringOtherApps: true)
+        shared?.window.makeKeyAndOrderFront(nil)
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError() }
-
-    override func close() {
-        super.close()
-        Self.current = nil
-    }
-
-    func windowWillClose(_ notification: Notification) {
-        Self.current = nil
-    }
-
-    private static func openShortcuts() {
-        if let delegate = AppDelegate.shared {
-            delegate.showMainWindow(tab: .shortcuts)
-        } else {
-            NotificationCenter.default.post(name: .latticeShowMainWindow, object: nil)
-        }
+    private func close() {
+        window.orderOut(nil)
+        NotificationCenter.default.post(name: .latticeShowMainWindow, object: nil)
     }
 }
 
-// MARK: - Flow
+// MARK: - Content
 
-@MainActor
-struct OnboardingFlow: View {
-
+private struct OnboardingView: View {
     @ObservedObject var model: AppModel
-    var onClose: () -> Void
-    var onOpenShortcuts: () -> Void
-    var onFinish: () -> Void
+    var dismiss: () -> Void
 
-    @State private var step = 0
-    @State private var showWhy = false
-    /// True once the user has asked macOS for the grant, so the banner can show the
-    /// live "waiting" state instead of the untouched "needed" state.
-    @State private var requestedAccess = false
+    @State private var requested = false
+    @State private var showPrivacy = false
 
-    /// The grant is read live from TCC; one tick a second is enough to feel immediate.
-    private let permissionPoll = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
-
-    private let gutter: CGFloat = 24
-    private let bodyWidth: CGFloat = 512
-
-    private var animation: Animation? { LatticeTheme.animation }
+    private var granted: Bool { model.accessibilityGranted }
 
     var body: some View {
-        ZStack {
-            OnboardingMaterialView()
-                .ignoresSafeArea()
-            Color(nsColor: .windowBackgroundColor)
-                .opacity(0.55)
-                .ignoresSafeArea()
-
-            VStack(spacing: 0) {
-                // Clears the traffic lights; the title bar itself stays invisible.
-                Color.clear
-                    .frame(height: 30)
-
-                Group {
-                    switch step {
-                    case 0: welcomeStep
-                    case 1: permissionStep
-                    default: keysStep
-                    }
-                }
-                .id(step)
-                .transition(.opacity)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(.bottom, LatticeTheme.Spacing.md)
-                .padding(.horizontal, gutter)
-
-                footer
-            }
-        }
-        .frame(width: 560, height: 600)
-        .onExitCommand(perform: onClose)
-        .onAppear { model.refreshPermissions() }
-        .onReceive(permissionPoll) { _ in
-            model.refreshPermissions()
-            if model.accessibilityGranted { model.bootstrap() }
-        }
-    }
-
-    // MARK: Footer
-
-    private var footer: some View {
-        VStack(spacing: 0) {
-            LatticeDivider()
-            HStack(spacing: LatticeTheme.Spacing.sm) {
-                if step > 0 {
-                    Button {
-                        goBack()
-                    } label: {
-                        Label("Back", systemImage: "chevron.left")
-                            .font(.system(size: 12))
-                            .labelStyle(.titleAndIcon)
-                    }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel("Back")
-                }
-
-                Text("Step \(step + 1) of 3")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
-                    .monospacedDigit()
-
-                Spacer(minLength: LatticeTheme.Spacing.sm)
-
-                secondaryAction
-                primaryAction
-            }
-            .padding(.horizontal, gutter)
-            .padding(.vertical, 14)
-        }
-    }
-
-    @ViewBuilder
-    private var secondaryAction: some View {
-        switch step {
-        case 1 where !model.accessibilityGranted:
-            quietButton("Not now") { advance() }
-                .accessibilityLabel("Continue without Accessibility")
-                .accessibilityHint("Tiling stays off until you grant access in System Settings")
-        case 2:
-            quietButton("Open all shortcuts") { onOpenShortcuts() }
-                .accessibilityLabel("Open every shortcut in the main window")
-        default:
-            EmptyView()
-        }
-    }
-
-    @ViewBuilder
-    private var primaryAction: some View {
-        switch step {
-        case 0:
-            primaryButton("Continue") { advance() }
-                .accessibilityLabel("Continue to Accessibility permission")
-        case 1:
-            primaryButton("Continue", enabled: model.accessibilityGranted) { advance() }
-                .accessibilityLabel("Continue to shortcuts")
-        default:
-            primaryButton("Start tiling") { finish() }
-                .accessibilityLabel("Start tiling and close this window")
-        }
-    }
-
-    private func primaryButton(_ title: String,
-                               enabled: Bool = true,
-                               action: @escaping () -> Void) -> some View {
-        Button(title, action: action)
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .keyboardShortcut(.defaultAction)
-            .disabled(!enabled)
-    }
-
-    private func quietButton(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(title, action: action)
-            .buttonStyle(.borderless)
-            .font(.system(size: 13))
-            .foregroundStyle(.secondary)
-            .frame(minHeight: 28)
-            .contentShape(Rectangle())
-    }
-
-    // MARK: Step 1 — welcome
-
-    private var welcomeStep: some View {
-        VStack(spacing: 0) {
-            LatticeBrandMark(size: 88)
-
-            Text("Welcome to Lattice")
-                .font(.system(size: 26, weight: .semibold))
-                .tracking(-0.35)
-                .padding(.top, 24)
-
-            Text("Lattice arranges every window on your Mac — on the Spaces you already use.")
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 380)
-                .padding(.top, LatticeTheme.Spacing.xs)
-
-            whatItDoes
-                .padding(.top, 28)
-        }
-        .frame(maxWidth: .infinity)
-        .accessibilityElement(children: .contain)
-    }
-
-    private var whatItDoes: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            featureRow("rectangle.split.3x1", "Tiles every window on the Space you are on.")
-            featureRow("keyboard", "Moves and resizes with the keyboard, not the mouse.")
-            featureRow("rectangle.on.rectangle", "Remembers a layout for each Space and display.")
-        }
-        .frame(maxWidth: 380, alignment: .leading)
-    }
-
-    private func featureRow(_ symbol: String, _ text: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Image(systemName: symbol)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 16, alignment: .center)
-            Text(text)
-                .font(.system(size: 13))
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .accessibilityElement(children: .combine)
-    }
-
-    // MARK: Step 2 — permission
-
-    private var permissionStep: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Grant Accessibility")
-                .font(.system(size: 24, weight: .semibold))
-                .tracking(-0.3)
+            Spacer(minLength: 0)
 
-            Text("Lattice moves other apps' windows through macOS Accessibility, which you grant once — tiling starts the moment it is on.")
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .frame(width: 64, height: 64)
+                .padding(.bottom, 18)
+
+            Text("Every window in its place.")
+                .font(.system(size: 24, weight: .semibold))
+                .padding(.bottom, 6)
+
+            Text("Lattice tiles the Spaces you already use. No config file, no helper, no network access.")
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 6)
+                .padding(.bottom, 24)
 
-            permissionState
-                .padding(.top, LatticeTheme.Spacing.lg)
-                .animation(animation, value: model.accessibilityGranted)
+            permissionRow
+                .padding(.bottom, 14)
 
-            whyDisclosure
-                .padding(.top, 14)
-        }
-        .frame(maxWidth: bodyWidth, alignment: .leading)
-    }
-
-    @ViewBuilder
-    private var permissionState: some View {
-        if model.accessibilityGranted {
-            grantedBanner
-                .transition(.opacity.combined(with: .scale(scale: 0.97)))
-        } else {
-            PermissionBanner(
-                onOpenSettings: {
-                    withAnimation(animation) { requestedAccess = true }
-                    SettingsLinks.openAccessibilitySettings()
-                },
-                onRequest: {
-                    withAnimation(animation) { requestedAccess = true }
-                    model.requestAccessibility()
+            if !granted {
+                Button("Continue without it") {
+                    PreferencesStore.shared.update { $0.hasCompletedOnboarding = true }
+                    dismiss()
                 }
-            )
-            .overlay(alignment: .bottomTrailing) {
-                if requestedAccess {
-                    waitingPill
-                        .padding(.trailing, LatticeTheme.Spacing.md)
-                        .padding(.bottom, LatticeTheme.Spacing.md)
-                        .allowsHitTesting(false)
-                        .transition(.opacity)
-                }
-            }
-        }
-    }
-
-    /// The live state that lives inside the banner while TCC has not answered yet.
-    private var waitingPill: some View {
-        HStack(spacing: 5) {
-            ProgressView()
-                .controlSize(.mini)
-            Text("Waiting for macOS…")
-                .font(.system(size: 11, weight: .medium))
+                .buttonStyle(.plain)
+                .font(.system(size: 12))
                 .foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3.5)
-        .background {
-            Capsule(style: .continuous)
-                .fill(.regularMaterial)
-        }
-        .overlay {
-            Capsule(style: .continuous)
-                .strokeBorder(Color.latticeHairline, lineWidth: LatticeTheme.hairline)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Waiting for macOS to grant Accessibility")
-    }
-
-    private var grantedBanner: some View {
-        HStack(spacing: LatticeTheme.Spacing.sm) {
-            ZStack {
-                Circle()
-                    .fill(Color(nsColor: .systemGreen))
-                Image(systemName: "checkmark")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(.white)
-            }
-            .frame(width: 28, height: 28)
-            .transition(.scale(scale: 0.5).combined(with: .opacity))
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Accessibility is on")
-                    .font(.system(size: 13, weight: .semibold))
-                Text("Lattice can move windows now. There is nothing else to do here.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Spacer(minLength: 0)
-        }
-        .padding(LatticeTheme.Spacing.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
-            let shape = RoundedRectangle(cornerRadius: LatticeTheme.Radius.lg, style: .continuous)
-            shape
-                .fill(Color(nsColor: .systemGreen).opacity(0.10))
-                .overlay {
-                    shape.strokeBorder(Color(nsColor: .systemGreen).opacity(0.34),
-                                       lineWidth: LatticeTheme.hairline * 2)
+
+            Button {
+                showPrivacy.toggle()
+            } label: {
+                HStack(spacing: 4) {
+                    Text("What Lattice can read")
+                        .font(.system(size: 11))
+                    Image(systemName: showPrivacy ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 8, weight: .semibold))
                 }
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Accessibility is on. Lattice can move windows now, nothing else is needed.")
-    }
-
-    private var whyDisclosure: some View {
-        DisclosureGroup(isExpanded: $showWhy) {
-            Text("Lattice reads window frames and titles so it can place each window and name it. It never reads what is inside a window, never captures the screen, and contains no network code.")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 6)
-        } label: {
-            Text("Why does Lattice need this?")
-                .font(.system(size: 12))
-        }
-        .accessibilityLabel("Why does Lattice need Accessibility")
-    }
-
-    // MARK: Step 3 — keys
-
-    private var keysStep: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Set your keys")
-                .font(.system(size: 24, weight: .semibold))
-                .tracking(-0.3)
-
-            Text("The six you will reach for most — focus, move, layout and the command palette. Every other shortcut lives in Shortcuts.")
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 6)
-
-            Card(padding: LatticeTheme.Spacing.xs, elevated: false) {
-                VStack(spacing: 0) {
-                    keyRow(.focusLeft)
-                    LatticeDivider(insetLeading: 26)
-                    keyRow(.moveLeft)
-                    LatticeDivider(insetLeading: 26)
-                    keyRow(.nextSpace)
-                    LatticeDivider(insetLeading: 26)
-                    keyRow(.toggleFloat)
-                    LatticeDivider(insetLeading: 26)
-                    keyRow(.cycleLayout)
-                    LatticeDivider(insetLeading: 26)
-                    keyRow(.commandPalette)
-                }
+                .foregroundStyle(.tertiary)
             }
-            .padding(.top, LatticeTheme.Spacing.lg)
+            .buttonStyle(.plain)
+
+            if showPrivacy {
+                Text("Window positions and titles, so it can place and name each window. Never window contents, never the screen, never the keyboard.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 6)
+            }
         }
-        .frame(maxWidth: bodyWidth, alignment: .leading)
+        .padding(.horizontal, 32)
+        .padding(.top, 44)
+        .padding(.bottom, 24)
+        .frame(width: 440, height: 420, alignment: .leading)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .animation(LatticeTheme.animation, value: granted)
     }
 
-    private func keyRow(_ command: CommandID) -> some View {
-        HStack(spacing: LatticeTheme.Spacing.xs) {
-            Image(systemName: command.symbol)
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .frame(width: 16)
-            Text(command.title)
-                .font(.system(size: 13))
-            Spacer(minLength: LatticeTheme.Spacing.sm)
-            SettingsKeyChord(combo: PreferencesStore.shared.prefs.bindings[command])
+    private var permissionRow: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(granted ? Color.green.opacity(0.15) : Color.orange.opacity(0.15))
+                    .frame(width: 30, height: 30)
+                Image(systemName: granted ? "checkmark" : "lock.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(granted ? .green : .orange)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Accessibility")
+                    .font(.system(size: 13, weight: .medium))
+                Text(granted ? "On" : requested ? "Waiting for macOS…" : "Required to move windows")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 8)
+
+            if !granted {
+                Button("Turn on Lattice") {
+                    requested = true
+                    model.requestAccessibility()
+                }
+                .controlSize(.regular)
+                .buttonStyle(.borderedProminent)
+            } else {
+                Button("Done", action: dismiss)
+                    .controlSize(.regular)
+                    .buttonStyle(.borderedProminent)
+            }
         }
-        .frame(height: 34)
-        .padding(.horizontal, 6)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(command.title): \(PreferencesStore.shared.prefs.bindings[command]?.display ?? "not assigned")")
-    }
-
-    // MARK: Navigation & actions
-
-    private func advance() {
-        guard step < 2 else { return }
-        withAnimation(animation) { step += 1 }
-    }
-
-    private func goBack() {
-        guard step > 0 else { return }
-        withAnimation(animation) { step -= 1 }
-    }
-
-    private func finish() {
-        SettingsPreferences.shared.update { $0.hasCompletedOnboarding = true }
-        model.setEnabled(true)
-        onFinish()
-    }
-}
-
-// MARK: - Material background
-
-struct OnboardingMaterialView: NSViewRepresentable {
-    var material: NSVisualEffectView.Material = .underWindowBackground
-    var blending: NSVisualEffectView.BlendingMode = .behindWindow
-
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = material
-        view.blendingMode = blending
-        view.state = .active
-        return view
-    }
-
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
-        nsView.material = material
-        nsView.blendingMode = blending
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
+        )
     }
 }

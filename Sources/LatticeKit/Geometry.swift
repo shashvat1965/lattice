@@ -38,12 +38,18 @@ public struct ManagedWindow: Identifiable, Hashable, Sendable {
     public var isMinimized: Bool
     public var role: String?
     public var subrole: String?
+    /// The smallest size the app will accept for this window, from `AXMinSize`.
+    /// Many apps clamp resizes to this, so the tiler plans around it instead of fighting it.
+    public var minSize: CGSize?
+    public var maxSize: CGSize?
     public var axElement: AXUIElementRef?
 
     public init(id: WindowID, pid: pid_t, appName: String, bundleID: String? = nil,
                 title: String, frame: CGRect, space: SpaceID, display: DisplayID,
                 isFloating: Bool = false, isFullscreen: Bool = false, isMinimized: Bool = false,
-                role: String? = nil, subrole: String? = nil, axElement: AXUIElementRef? = nil) {
+                role: String? = nil, subrole: String? = nil,
+                minSize: CGSize? = nil, maxSize: CGSize? = nil,
+                axElement: AXUIElementRef? = nil) {
         self.id = id
         self.pid = pid
         self.appName = appName
@@ -57,6 +63,8 @@ public struct ManagedWindow: Identifiable, Hashable, Sendable {
         self.isMinimized = isMinimized
         self.role = role
         self.subrole = subrole
+        self.minSize = minSize
+        self.maxSize = maxSize
         self.axElement = axElement
     }
 }

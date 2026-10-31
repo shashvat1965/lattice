@@ -6,6 +6,7 @@ let package = Package(
     platforms: [.macOS(.v15)],
     products: [
         .executable(name: "Lattice", targets: ["Lattice"]),
+        .executable(name: "lattice", targets: ["LatticeCLI"]),
     ],
     targets: [
         .target(
@@ -18,6 +19,15 @@ let package = Package(
         .executableTarget(
             name: "Lattice",
             dependencies: ["LatticeKit"],
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+                .unsafeFlags(["-suppress-warnings"]),
+            ]
+        ),
+        .executableTarget(
+            name: "LatticeCLI",
+            dependencies: ["LatticeKit"],
+            path: "Sources/LatticeCLI",
             swiftSettings: [
                 .swiftLanguageMode(.v5),
                 .unsafeFlags(["-suppress-warnings"]),

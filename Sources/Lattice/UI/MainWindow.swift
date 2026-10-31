@@ -36,8 +36,8 @@ public enum MainTab: String, CaseIterable, Identifiable, Hashable {
     }
 
     /// The rows that actually live in the sidebar, in order.
-    static var sidebarPrimary: [MainTab] { [.overview, .spaces, .layouts] }
-    static var sidebarConfiguration: [MainTab] { [.shortcuts, .rules, .settings] }
+    static var sidebarPrimary: [MainTab] { [.overview, .layouts] }
+    static var sidebarConfiguration: [MainTab] { [.shortcuts, .settings] }
 
     /// Tabs the shell knows how to show, even when there is no sidebar row for them.
     static func resolved(_ tab: MainTab) -> MainTab {
@@ -91,6 +91,9 @@ final class MainWindowController: NSWindowController {
         window.contentViewController = hosting
 
         window.setFrameAutosaveName("LatticeMainWindow")
+        // Follow the user: a window left on another Space can never become key, which makes
+        // the app look like it refuses to come to the front.
+        window.collectionBehavior = [.moveToActiveSpace, .managed, .participatesInCycle]
         if !window.setFrameUsingName("LatticeMainWindow") {
             window.center()
         }

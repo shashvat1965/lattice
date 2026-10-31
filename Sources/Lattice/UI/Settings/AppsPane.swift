@@ -53,6 +53,7 @@ struct AppsPane: View {
             paneHeader
             LatticeDivider()
             Form {
+                floatingSection
                 rulesSection
                 addSection
             }
@@ -88,6 +89,97 @@ struct AppsPane: View {
         .padding(.horizontal, LatticeTheme.gutter)
         .padding(.top, 18)
         .padding(.bottom, LatticeTheme.Spacing.sm)
+    }
+
+    // MARK: Always floating
+
+    /// The list the user actually asked for: apps whose windows are never tiled.
+    /// Deliberately the first thing on the page, because it is the most common tweak.
+    private var floatingSection: some View {
+        Section {
+            if floatingApps.isEmpty {
+                Text("No floating apps. Every window is tiled.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 4)
+            } else {
+                ForEach(floatingApps, id: \.bundleID) { app in
+                    HStack(spacing: LatticeTheme.Spacing.xs) {
+                        AppIcon(bundleID: app.bundleID, appName: app.name, size: 22)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(app.name)
+                                .font(.system(size: 12, weight: .medium))
+                            Text(app.isSystem ? "System app · never tiled" : "Never tiled")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.tertiary)
+                        }
+                        Spacer(minLength: LatticeTheme.Spacing.xs)
+                        Button {
+                            PreferencesStore.shared.update { $0.floatBundleIDs.remove(app.bundleID) }
+                            HotkeyCenter.shared.reload()
+                            model.tiler.reconcile()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.tertiary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Tile this app again")
+                        .accessibilityLabel("Remove \(app.name) from floating apps")
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+        } header: {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Always floating")
+                Text("\(floatingApps.count)")
+                    .font(.system(size: 11).monospacedDigit())
+                    .foregroundStyle(.tertiary)
+                Spacer()
+                Menu("Add app…") {
+                    let available = installed
+                        .filter { !store.prefs.floatBundleIDs.contains($0.bundleID) }
+                        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                    if available.isEmpty {
+                        Text("Every installed app is already listed")
+                    } else {
+                        ForEach(available) { app in
+                            Button(app.name) {
+                                PreferencesStore.shared.update { $0.floatBundleIDs.insert(app.bundleID) }
+                                HotkeyCenter.shared.reload()
+                                model.tiler.reconcile()
+                            }
+                        }
+                    }
+                }
+                .menuStyle(.borderlessButton)
+                .controlSize(.small)
+                .fixedSize()
+                .accessibilityLabel("Add an app that should never be tiled")
+            }
+        } footer: {
+            Text("Windows from these apps keep their own size and position. Everything else is tiled.")
+        }
+    }
+
+    private struct FloatingApp: Identifiable {
+        var bundleID: String
+        var name: String
+        var isSystem: Bool
+        var id: String { bundleID }
+    }
+
+    private var floatingApps: [FloatingApp] {
+        store.prefs.floatBundleIDs
+            .map { bundleID in
+                let installedName = installed.first { $0.bundleID == bundleID }?.name
+                let name = installedName
+                    ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
+                        .map { FileManager.default.displayName(atPath: $0.path) }
+                    ?? bundleID
+                return FloatingApp(bundleID: bundleID, name: name, isSystem: bundleID.hasPrefix("com.apple."))
+            }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
     // MARK: Rules

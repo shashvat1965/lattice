@@ -281,7 +281,8 @@ public final class Tiler {
                                           masterRatio: prefs.masterRatio,
                                           stackPeek: prefs.stackPeek,
                                           gridColumns: prefs.gridColumns,
-                                          minimum: TilingGeometry.effectiveMinimum(prefs))
+                                          minimum: TilingGeometry.effectiveMinimum(prefs),
+                                          minimums: tileable.map { minimumSize(for: $0) })
         if let note = solution.note {
             LatticeDiagnostics.record("space \(space.raw): \(note)")
             Log.info("space \(space.raw): \(note)")
@@ -294,7 +295,9 @@ public final class Tiler {
                 continue
             }
             lastFrames[id] = target
-            if engine.isStubborn(id) {
+            // A stubborn window is skipped only while we have nothing better to offer it.
+            // Once a refused write has taught us its real floor, it can be planned for.
+            if engine.isStubborn(id), engine.learnedMinimum(id) == nil {
                 LatticeDiagnostics.record("space \(space.raw): skip stubborn window \(id.raw)")
                 continue
             }
@@ -334,7 +337,21 @@ public final class Tiler {
                        animated: Bool,
                        reason: MotionReason,
                        context: String) {
-        guard !targets.isEmpty else { return }
+        // Never touch a window that is already where it belongs: a focus change must not
+        // rewrite (and therefore animate) the whole Space under the user's cursor.
+        let slack: CGFloat = 0.5
+        let pending = targets.filter { target in
+            guard let current = engine.frame(of: target.id) else { return true }
+            return abs(current.minX - target.frame.minX) > slack
+                || abs(current.minY - target.frame.minY) > slack
+                || abs(current.width - target.frame.width) > slack
+                || abs(current.height - target.frame.height) > slack
+        }
+        guard !pending.isEmpty else {
+            LatticeDiagnostics.record("motion \(context): nothing to do (already placed)")
+            return
+        }
+        let targets = pending
         let curve = prefs.animationCurve
 
         guard animated, MotionPolicy.allowsAnimation(prefs, reason: reason) else {
@@ -772,6 +789,25 @@ public final class Tiler {
     }
 
     // MARK: - Undo
+
+    /// The largest of: what AX reports, what a refused write taught us, and nothing else.
+    private func minimumSize(for id: WindowID) -> CGSize {
+        var size = engine.window(id)?.minSize ?? .zero
+        if let learned = engine.learnedMinimum(id) {
+            size = CGSize(width: max(size.width, learned.width), height: max(size.height, learned.height))
+        }
+        return size
+    }
+
+    /// Places a dragged window into a snapped rectangle and lets the rest of the Space reflow.
+    /// The window becomes floating so the tiled layout never fights the user's explicit choice.
+    public func snapWindow(_ id: WindowID, to rect: CGRect, on space: SpaceID) {
+        floating.insert(id)
+        order[space]?.removeAll { $0 == id }
+        engine.setFrame(rect, for: [id], animated: MotionPolicy.allowsAnimation(prefs, reason: .snap),
+                        duration: prefs.animationDuration)
+        reconcile(animated: false)
+    }
 
     public func snapshot() {
         undoStack.append(lastFrames)

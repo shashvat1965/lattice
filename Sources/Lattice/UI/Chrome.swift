@@ -15,7 +15,7 @@ final class MenuCommandTarget: NSObject {
     }
 
     @objc func showSettings() {
-        NotificationCenter.default.post(name: .latticeShowMainWindow, object: nil)
+        NotificationCenter.default.post(name: .latticeShowSettings, object: nil)
     }
 
     @objc func showSpaces() {

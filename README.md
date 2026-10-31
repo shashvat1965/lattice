@@ -65,22 +65,25 @@ System Integrity Protection, and never replaces a system component.
 
 | Shortcut | Action |
 |---|---|
-| ⌃⌥ H J K L | Focus left / down / up / right |
-| ⌃⌥⇧ H J K L | Move the window through the tile order |
-| ⌃⌥⌘ ← → ↑ ↓ | Swap with the neighbouring tile |
-| ⌃⌥ = / − | Wider / narrower |
-| ⌃⌥ ↑ / ↓ | Taller / shorter |
-| ⌃⌥⌘ 1–4 | Dwindle · Columns · Rows · Grid |
-| ⌃⌥ Space | Next layout |
-| ⌃⌥ F | Float / tile |
-| ⌃⌥⌘ F | macOS full screen |
-| ⌃⌥⌘ Z | Focus mode |
-| ⌃⌥ C | Centre |
-| ⌃⌥ ↩ | Zoom |
-| ⌥⌘ ← → | Previous / next Space |
+| ⌥ H J K L | Focus left / down / up / right |
+| ⇧⌥ H J K L | Move the window through the tile order |
+| ⌥ ← → ↑ ↓ | Also move the window (alternate chords) |
+| ⌥ 1–9 | Jump to a Space |
+| ⇧⌥ 1–9 | Send the focused window to that Space |
+| ⌃⌥ ← → | Previous / next Space |
+| ⌥⌘ 1–6 | Dwindle · Columns · Rows · Grid · Master · Stack |
+| ⌥ Space | Next layout |
+| ⌥ F | Float / tile |
+| ⇧⌥ F | macOS full screen |
+| ⇧⌥ Z | Focus mode |
+| ⌥ C | Centre |
+| ⌥ ↩ | Zoom |
 | ⌃⌥⌘ K | Command palette |
 | ⌃⌥⌘ / | Every shortcut on screen |
 | ⌃⌥⌘ P | Pause tiling |
+
+Space keys are a real mapping: any key can point at any Space (⌥A for Space 3 is fine), and
+you can add a second chord to any command. All of it lives in Settings ▸ Shortcuts.
 
 Every one of them is rebindable in Settings ▸ Shortcuts, with live conflict detection.
 

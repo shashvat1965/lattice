@@ -1,11 +1,16 @@
 import SwiftUI
 import AppKit
+import Combine
 import LatticeKit
 
 // MARK: - ShortcutsPane
 
 /// Every command, grouped by category, with a recorder on each shortcut.
 /// This is the screen Lattice wins on: no config file, no YAML, no restart.
+///
+/// Two keyboard models live here: AeroSpace-style Space keys (⌥1… jumps, ⇧⌥1… sends the
+/// window) and one or two chords per command. Both write straight into `Preferences`
+/// and ask `HotkeyCenter` to re-register, so nothing needs a relaunch.
 @MainActor
 struct ShortcutsPane: View {
 
@@ -23,45 +28,90 @@ struct ShortcutsPane: View {
         var id: CommandCategory { category }
     }
 
+    private struct SpaceKeyEntry: Identifiable {
+        var key: String
+        var number: Int
+        var id: String { key }
+    }
+
+    private enum ChordSlot: Equatable {
+        case primary
+        case alternate
+    }
+
+    /// The other side of a conflict. Space keys are stored per key, not per command,
+    /// so they get their own case: removing one removes both of its chords.
+    private enum ConflictTarget: Equatable {
+        case command(CommandID, alternate: Bool)
+        case spaceKey(String)
+    }
+
     private struct PendingBinding: Equatable {
         var command: CommandID
+        var slot: ChordSlot
         var combo: KeyCombo
-        var conflictingCommand: CommandID?
+        var target: ConflictTarget?
         var systemName: String?
     }
 
+    private static let primaryWidth: CGFloat = 150
+    private static let alternateWidth: CGFloat = 112
+
     @ObservedObject private var store = SettingsPreferences.shared
+    @ObservedObject private var model = AppModel.shared
     @StateObject private var recorder = KeyRecorder()
+    @StateObject private var alternateRecorder = KeyRecorder()
 
     @State private var query = ""
     @State private var filter: BindingFilter = .all
     @State private var pending: PendingBinding?
     @State private var confirmReset = false
+    @State private var showAddSpaceKey = false
+    @State private var showArrowHint = true
+    /// Bumped when HotkeyCenter re-registers, so its conflict reasons are re-read.
+    @State private var hotkeyTick = 0
 
     var body: some View {
         VStack(spacing: 0) {
             header
             LatticeDivider()
+            spaceKeysSection
             shortcutList
         }
         .background(Color.latticeCanvas)
         .onAppear {
             store.beginObserving()
-            recorder.onResult = { command, combo in commit(command, combo) }
+            recorder.onResult = { command, combo in commit(command, combo, slot: .primary) }
             recorder.onCancel = { animate { pending = nil } }
+            alternateRecorder.onResult = { command, combo in commit(command, combo, slot: .alternate) }
+            alternateRecorder.onCancel = { animate { pending = nil } }
         }
         .onDisappear {
             recorder.cancel()
+            alternateRecorder.cancel()
             store.endObserving()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .latticeHotkeysDidChange)) { _ in
+            hotkeyTick &+= 1
+        }
+        .sheet(isPresented: $showAddSpaceKey) {
+            AddSpaceKeySheet(existing: store.prefs.spaceKeys) { key, number in
+                addSpaceKey(key, number)
+            }
         }
         .confirmationDialog("Reset all shortcuts?", isPresented: $confirmReset) {
             Button("Reset Shortcuts", role: .destructive) {
-                store.update { $0.bindings = Preferences.defaultBindings }
+                store.update { prefs in
+                    prefs.bindings = Preferences.defaultBindings
+                    prefs.alternateBindings = Preferences.defaultAlternates
+                    prefs.spaceKeys = Preferences.defaultSpaceKeys
+                }
+                HotkeyCenter.shared.reload()
                 animate { pending = nil }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Every Lattice command returns to its shipping shortcut.")
+            Text("Every command and alternate chord, plus every Space key, returns to its shipping shortcut.")
         }
     }
 
@@ -100,6 +150,10 @@ struct ShortcutsPane: View {
                 .frame(width: 196)
                 .accessibilityLabel("Filter shortcuts")
             }
+
+            if showArrowHint {
+                arrowHint
+            }
         }
         .padding(.horizontal, LatticeTheme.gutter)
         .padding(.top, 18)
@@ -137,6 +191,164 @@ struct ShortcutsPane: View {
             RoundedRectangle(cornerRadius: LatticeTheme.Radius.sm, style: .continuous)
                 .strokeBorder(Color.latticeHairline, lineWidth: LatticeTheme.hairline)
         )
+    }
+
+    /// A footnote, not a banner: the arrow chords are a real macOS collision and the
+    /// user may want them back, but nothing is wrong. Dismissal lasts for this visit only.
+    private var arrowHint: some View {
+        HStack(alignment: .top, spacing: LatticeTheme.Spacing.xs) {
+            InlineHint(
+                text: "⌥← → ↑ ↓ move the focused window. macOS uses the same chords to move by word inside text fields, so clear them here if you want that back."
+            )
+            Spacer(minLength: 0)
+            Button {
+                animate { showArrowHint = false }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 16, height: 16)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Hide this note")
+            .accessibilityLabel("Dismiss the note about Option-arrow shortcuts")
+        }
+    }
+
+    // MARK: Space keys
+
+    private var spaceKeyEntries: [SpaceKeyEntry] {
+        store.prefs.spaceKeys
+            .map { SpaceKeyEntry(key: $0.key, number: $0.value) }
+            .sorted { lhs, rhs in
+                if lhs.number != rhs.number { return lhs.number < rhs.number }
+                return KeyCombo.pretty(lhs.key) < KeyCombo.pretty(rhs.key)
+            }
+    }
+
+    private var spaceKeysSection: some View {
+        VStack(alignment: .leading, spacing: LatticeTheme.Spacing.xs) {
+            HStack(alignment: .firstTextBaseline, spacing: LatticeTheme.Spacing.md) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Space keys")
+                        .latticeSectionHeader()
+                    Text("⌥ plus a key jumps to a Space. ⇧⌥ plus the same key sends the focused window there.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                Button("Add key…") {
+                    recorder.cancel()
+                    alternateRecorder.cancel()
+                    pending = nil
+                    showAddSpaceKey = true
+                }
+                .controlSize(.small)
+                .accessibilityLabel("Add a Space key")
+            }
+
+            Card(padding: 0) {
+                if spaceKeyEntries.isEmpty {
+                    InlineHint(
+                        text: "No Space keys — Spaces can still be switched with ⌃⌥← →",
+                        symbol: "info.circle"
+                    )
+                    .padding(.horizontal, LatticeTheme.Spacing.sm)
+                    .padding(.vertical, 10)
+                } else {
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: 286), spacing: LatticeTheme.Spacing.xs)],
+                        alignment: .leading,
+                        spacing: 2
+                    ) {
+                        ForEach(spaceKeyEntries) { entry in
+                            spaceKeyRow(entry)
+                        }
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
+                }
+            }
+        }
+        .padding(.horizontal, LatticeTheme.gutter)
+        .padding(.bottom, LatticeTheme.Spacing.sm)
+    }
+
+    private func spaceKeyRow(_ entry: SpaceKeyEntry) -> some View {
+        let option = KeyCombo(key: entry.key, modifiers: [.option])
+        let send = KeyCombo(key: entry.key, modifiers: [.option, .shift])
+        let pretty = KeyCombo.pretty(entry.key)
+        let missing = currentSpaceCount.map { entry.number > $0 } ?? false
+
+        return VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                KeyCap(text: pretty)
+
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
+
+                Text("Space \(entry.number)")
+                    .font(.system(size: 12))
+                    .latticeMonoDigits()
+                    .foregroundStyle(missing ? Color.secondary : Color.primary)
+                    .lineLimit(1)
+
+                Spacer(minLength: LatticeTheme.Spacing.xxs)
+
+                HStack(spacing: 5) {
+                    SettingsKeyChord(combo: option)
+                    Text("·")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                        .accessibilityHidden(true)
+                    SettingsKeyChord(combo: send)
+                        .opacity(0.72)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Option \(pretty) jumps to Space \(entry.number). Shift Option \(pretty) sends the focused window to Space \(entry.number).")
+
+                Button {
+                    removeSpaceKey(entry.key)
+                } label: {
+                    Image(systemName: "minus.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 18, height: 18)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Remove the \(pretty) Space key")
+                .accessibilityLabel("Remove the \(pretty) key that goes to Space \(entry.number)")
+            }
+            .frame(height: 26)
+
+            if let count = currentSpaceCount, missing {
+                Text("Display has \(count) Spaces")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 2)
+                    .accessibilityLabel("Space \(entry.number) does not exist. This display has \(count) Spaces.")
+            }
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 5)
+    }
+
+    /// How many user Spaces the display that owns the focused Space has. Fullscreen
+    /// Spaces are excluded, matching Mission Control's numbering. `nil` before the
+    /// first refresh, so nothing warns on a cold start with no data.
+    private var currentSpaceCount: Int? {
+        guard !model.spaces.isEmpty else { return nil }
+        let entry = model.spaces.first { $0.spaceIDs.contains(model.focusedSpace) }
+            ?? model.spaces.first { $0.isMain }
+            ?? model.spaces.first
+        guard let entry else { return nil }
+        let count = entry.userSpaceIDs.count
+        return count > 0 ? count : nil
     }
 
     // MARK: List
@@ -193,61 +405,174 @@ struct ShortcutsPane: View {
     }
 
     private func shortcutRow(_ command: CommandID) -> some View {
-        let combo = store.prefs.bindings[command]
-        let recording = recorder.target == command
+        let primary = store.prefs.bindings[command]
+        let alternate = store.prefs.alternateBindings[command]
+        let recordingPrimary = recorder.target == command
+        let recordingAlternate = alternateRecorder.target == command
+        let primaryWarning = warning(for: primary, command: command, slot: .primary)
+        let alternateWarning = warning(for: alternate, command: command, slot: .alternate)
+        _ = hotkeyTick
+        let registrationWarning = HotkeyCenter.shared.conflictReasons[command]
 
         return HStack(spacing: LatticeTheme.Spacing.sm) {
             Image(systemName: command.symbol)
                 .font(.system(size: 12))
-                .foregroundStyle(recording ? Color.accentColor : Color.secondary)
+                .foregroundStyle(recordingPrimary || recordingAlternate ? Color.accentColor : Color.secondary)
                 .frame(width: 18)
 
             Text(command.title)
                 .font(.system(size: 13))
-                .foregroundStyle(recording ? Color.accentColor : Color.primary)
+                .foregroundStyle(recordingPrimary || recordingAlternate ? Color.accentColor : Color.primary)
                 .lineLimit(1)
 
-            Spacer(minLength: LatticeTheme.Spacing.sm)
-
-            Button {
-                if recording {
-                    recorder.cancel()
-                } else {
-                    pending = nil
-                    recorder.begin(command)
-                }
-            } label: {
-                Group {
-                    if recording {
-                        KeyRecorderField(recorder: recorder, command: command)
-                    } else {
-                        SettingsKeyChord(combo: combo)
-                            .frame(width: 150, alignment: .trailing)
-                            .contentShape(Rectangle())
-                    }
-                }
+            if let registrationWarning {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Color(nsColor: .systemOrange))
+                    .help("Lattice could not register this shortcut: \(registrationWarning)")
+                    .accessibilityLabel("Shortcut warning for \(command.title): \(registrationWarning)")
             }
-            .buttonStyle(.plain)
-            .help(recording ? "Escape cancels, Delete clears" : "Click to record a new shortcut")
-            .accessibilityLabel("Shortcut for \(command.title): \(combo?.display ?? "unbound")")
-            .accessibilityHint("Press to record a new shortcut")
+
+            Spacer(minLength: LatticeTheme.Spacing.xs)
+
+            alternateSlot(command, alternate: alternate, recording: recordingAlternate, warning: alternateWarning)
+                .frame(width: Self.alternateWidth, alignment: .trailing)
+
+            primarySlot(command, primary: primary, recording: recordingPrimary, warning: primaryWarning)
 
             Button {
-                if recording { recorder.cancel() }
-                apply(command, nil)
+                if recordingPrimary { recorder.cancel() }
+                if recordingAlternate { alternateRecorder.cancel() }
+                apply(command, nil, slot: .primary)
             } label: {
                 Image(systemName: "minus.circle.fill")
                     .font(.system(size: 12))
                     .foregroundStyle(.tertiary)
             }
             .buttonStyle(.plain)
-            .opacity(combo == nil ? 0 : 1)
-            .disabled(combo == nil)
+            .opacity(primary == nil ? 0 : 1)
+            .disabled(primary == nil)
             .help("Remove shortcut")
             .accessibilityLabel("Remove shortcut for \(command.title)")
         }
         .frame(height: 34)
         .contentShape(Rectangle())
+    }
+
+    /// The main chord. Behaviour is unchanged: click to record, minus to clear.
+    private func primarySlot(_ command: CommandID,
+                             primary: KeyCombo?,
+                             recording: Bool,
+                             warning: String?) -> some View {
+        Button {
+            if recording {
+                recorder.cancel()
+            } else {
+                alternateRecorder.cancel()
+                pending = nil
+                recorder.begin(command)
+            }
+        } label: {
+            Group {
+                if recording {
+                    KeyRecorderField(recorder: recorder, command: command)
+                } else {
+                    HStack(spacing: 4) {
+                        if let warning {
+                            conflictBadge(warning)
+                        }
+                        SettingsKeyChord(combo: primary)
+                    }
+                    .frame(width: Self.primaryWidth, alignment: .trailing)
+                    .contentShape(Rectangle())
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .help(recording ? "Escape cancels, Delete clears" : (warning ?? "Click to record a new shortcut"))
+        .accessibilityLabel("Shortcut for \(command.title): \(primary?.display ?? "unbound")")
+        .accessibilityHint(recording
+                           ? "Press keys. Escape cancels, Delete clears."
+                           : "Press to record a new shortcut")
+    }
+
+    /// The second chord: dimmed next to the primary, a plus when empty.
+    @ViewBuilder
+    private func alternateSlot(_ command: CommandID,
+                               alternate: KeyCombo?,
+                               recording: Bool,
+                               warning: String?) -> some View {
+        if recording {
+            Button {
+                alternateRecorder.cancel()
+            } label: {
+                KeyRecorderField(recorder: alternateRecorder, command: command)
+            }
+            .buttonStyle(.plain)
+            .help("Escape cancels, Delete clears")
+            .accessibilityLabel("Recording the alternate shortcut for \(command.title)")
+        } else if let alternate {
+            HStack(spacing: 4) {
+                if let warning {
+                    conflictBadge(warning)
+                }
+
+                Button {
+                    recorder.cancel()
+                    pending = nil
+                    alternateRecorder.begin(command)
+                } label: {
+                    SettingsKeyChord(combo: alternate)
+                        .opacity(0.62)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(warning ?? "Alternate: \(alternate.display). Click to record a new one.")
+                .accessibilityLabel("Alternate shortcut for \(command.title): \(alternate.display)")
+                .accessibilityHint("Press to record a new alternate shortcut")
+                .contextMenu {
+                    Button("Remove Alternate Shortcut", role: .destructive) {
+                        apply(command, nil, slot: .alternate)
+                    }
+                }
+
+                Button {
+                    apply(command, nil, slot: .alternate)
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 14, height: 14)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Remove the alternate shortcut")
+                .accessibilityLabel("Remove the alternate shortcut for \(command.title)")
+            }
+        } else {
+            Button {
+                recorder.cancel()
+                pending = nil
+                alternateRecorder.begin(command)
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Add an alternate shortcut for \(command.title)")
+            .accessibilityLabel("Add an alternate shortcut for \(command.title)")
+        }
+    }
+
+    private func conflictBadge(_ message: String) -> some View {
+        Image(systemName: "exclamationmark.triangle.fill")
+            .font(.system(size: 10))
+            .foregroundStyle(Color(nsColor: .systemOrange))
+            .help(message)
+            .accessibilityLabel(message)
     }
 
     // MARK: Conflicts
@@ -272,15 +597,15 @@ struct ShortcutsPane: View {
 
             Spacer(minLength: LatticeTheme.Spacing.xs)
 
-            if pending.conflictingCommand != nil {
-                Button("Use anyway") { apply(pending.command, pending.combo) }
+            if pending.target != nil {
+                Button("Use anyway") { apply(pending.command, pending.combo, slot: pending.slot) }
                     .controlSize(.small)
                     .accessibilityLabel("Use \(pending.combo.display) anyway")
-                Button("Unbind other") { takeOver(pending, unbindingOther: true) }
+                Button(unbindTitle(pending)) { takeOver(pending, unbindingOther: true) }
                     .controlSize(.small)
-                    .accessibilityLabel("Unbind the other command and use \(pending.combo.display) here")
+                    .accessibilityLabel("\(unbindTitle(pending)) and use \(pending.combo.display) here")
             } else {
-                Button("Use anyway") { apply(pending.command, pending.combo) }
+                Button("Use anyway") { apply(pending.command, pending.combo, slot: pending.slot) }
                     .controlSize(.small)
                 Button("Open Keyboard settings") { SettingsLinks.openKeyboardSettings() }
                     .controlSize(.small)
@@ -303,14 +628,92 @@ struct ShortcutsPane: View {
         .listRowBackground(Color.clear)
     }
 
+    private func unbindTitle(_ pending: PendingBinding) -> String {
+        if case .spaceKey = pending.target { return "Remove Space key" }
+        return "Unbind other"
+    }
+
     private func conflictMessage(_ pending: PendingBinding) -> String {
-        if let other = pending.conflictingCommand {
-            return "\(pending.combo.display) is already used by \(other.title)."
+        switch pending.target {
+        case .command(let other, let alternate):
+            return "\(pending.combo.display) is already used by \(other.title)\(alternate ? " (alternate)" : "")."
+        case .spaceKey(let key):
+            let pretty = KeyCombo.pretty(key)
+            if let number = store.prefs.spaceKeys[key] {
+                return "\(pending.combo.display) is used by the Space key \(pretty) (Space \(number))."
+            }
+            return "\(pending.combo.display) is used by a Space key."
+        case nil:
+            if let systemName = pending.systemName {
+                return "\(pending.combo.display) is macOS \(systemName)."
+            }
+            return "\(pending.combo.display) is already in use."
         }
-        if let systemName = pending.systemName {
-            return "\(pending.combo.display) is macOS \(systemName)."
+    }
+
+    /// A human label for the other side of a clash, used in the amber tooltip.
+    private func warning(for combo: KeyCombo?,
+                         command: CommandID,
+                         slot: ChordSlot) -> String? {
+        guard let combo else { return nil }
+
+        for (key, number) in store.prefs.spaceKeys {
+            let pretty = KeyCombo.pretty(key)
+            if combo == KeyCombo(key: key, modifiers: [.option]) {
+                return "\(combo.display) is also the Space key for Space \(number) (⌥\(pretty))."
+            }
+            if combo == KeyCombo(key: key, modifiers: [.option, .shift]) {
+                return "\(combo.display) is also the send-to-Space key for Space \(number) (⇧⌥\(pretty))."
+            }
         }
-        return "\(pending.combo.display) is already in use."
+
+        for other in CommandID.allCases where other != command {
+            if store.prefs.bindings[other] == combo {
+                return "\(combo.display) is also used by \(other.title)."
+            }
+            if store.prefs.alternateBindings[other] == combo {
+                return "\(combo.display) is also the alternate for \(other.title)."
+            }
+        }
+
+        if slot == .alternate, store.prefs.bindings[command] == combo {
+            return "\(combo.display) is also the main shortcut for \(command.title)."
+        }
+        if slot == .primary, store.prefs.alternateBindings[command] == combo {
+            return "\(combo.display) is also the alternate shortcut for \(command.title)."
+        }
+
+        return nil
+    }
+
+    /// The same search, but as something a conflict row can act on.
+    private func conflictTarget(for combo: KeyCombo,
+                                command: CommandID,
+                                slot: ChordSlot) -> ConflictTarget? {
+        for (key, _) in store.prefs.spaceKeys {
+            if combo == KeyCombo(key: key, modifiers: [.option])
+                || combo == KeyCombo(key: key, modifiers: [.option, .shift]) {
+                return .spaceKey(key)
+            }
+        }
+
+        for other in CommandID.allCases where other != command {
+            if store.prefs.bindings[other] == combo {
+                return .command(other, alternate: false)
+            }
+            if store.prefs.alternateBindings[other] == combo {
+                return .command(other, alternate: true)
+            }
+        }
+
+        if slot == .alternate, store.prefs.bindings[command] == combo {
+            return .command(command, alternate: false)
+        }
+        if slot == .primary, store.prefs.alternateBindings[command] == combo {
+            return .command(command, alternate: true)
+        }
+
+        return nil
     }
 
     // MARK: Hint bar
@@ -366,6 +769,8 @@ struct ShortcutsPane: View {
                     if command.title.lowercased().contains(needle) { return true }
                     if let combo = store.prefs.bindings[command],
                        combo.display.lowercased().contains(needle) { return true }
+                    if let combo = store.prefs.alternateBindings[command],
+                       combo.display.lowercased().contains(needle) { return true }
                     return false
                 }
             }
@@ -379,51 +784,231 @@ struct ShortcutsPane: View {
 
     // MARK: Binding writes
 
-    private func commit(_ command: CommandID, _ combo: KeyCombo?) {
+    private func commit(_ command: CommandID, _ combo: KeyCombo?, slot: ChordSlot) {
         guard let combo else {
-            apply(command, nil)
+            apply(command, nil, slot: slot)
             return
         }
 
-        if let other = conflictingCommand(for: combo, excluding: command) {
+        if let target = conflictTarget(for: combo, command: command, slot: slot) {
             animate {
-                pending = PendingBinding(command: command, combo: combo, conflictingCommand: other)
+                pending = PendingBinding(command: command, slot: slot, combo: combo, target: target)
             }
             return
         }
 
         if let system = SettingsSystemShortcuts.conflict(for: combo) {
             animate {
-                pending = PendingBinding(command: command, combo: combo, systemName: system.name)
+                pending = PendingBinding(command: command, slot: slot, combo: combo, systemName: system.name)
             }
             return
         }
 
-        apply(command, combo)
+        apply(command, combo, slot: slot)
     }
 
-    private func conflictingCommand(for combo: KeyCombo, excluding command: CommandID) -> CommandID? {
-        CommandID.allCases.first { $0 != command && store.prefs.bindings[$0] == combo }
-    }
-
-    private func apply(_ command: CommandID, _ combo: KeyCombo?) {
+    private func apply(_ command: CommandID, _ combo: KeyCombo?, slot: ChordSlot) {
         store.update { prefs in
-            if let combo {
-                prefs.bindings[command] = combo
-            } else {
-                prefs.bindings.removeValue(forKey: command)
+            switch slot {
+            case .primary:
+                if let combo {
+                    prefs.bindings[command] = combo
+                } else {
+                    prefs.bindings.removeValue(forKey: command)
+                }
+            case .alternate:
+                if let combo {
+                    prefs.alternateBindings[command] = combo
+                } else {
+                    prefs.alternateBindings.removeValue(forKey: command)
+                }
             }
         }
+        // The shared bridge only watches `bindings`; alternates and Space keys must ask.
+        if slot == .alternate { HotkeyCenter.shared.reload() }
         animate { pending = nil }
     }
 
     private func takeOver(_ pending: PendingBinding, unbindingOther: Bool) {
         store.update { prefs in
-            if unbindingOther, let other = pending.conflictingCommand {
-                prefs.bindings.removeValue(forKey: other)
+            if unbindingOther, let target = pending.target {
+                switch target {
+                case .command(let other, let alternate):
+                    if alternate {
+                        prefs.alternateBindings.removeValue(forKey: other)
+                    } else {
+                        prefs.bindings.removeValue(forKey: other)
+                    }
+                case .spaceKey(let key):
+                    prefs.spaceKeys.removeValue(forKey: key)
+                }
             }
-            prefs.bindings[pending.command] = pending.combo
+
+            switch pending.slot {
+            case .primary:
+                prefs.bindings[pending.command] = pending.combo
+            case .alternate:
+                prefs.alternateBindings[pending.command] = pending.combo
+            }
         }
+        HotkeyCenter.shared.reload()
         animate { self.pending = nil }
+    }
+
+    // MARK: Space key writes
+
+    private func addSpaceKey(_ key: String, _ number: Int) {
+        store.update { prefs in
+            prefs.spaceKeys[key] = number
+        }
+        HotkeyCenter.shared.reload()
+    }
+
+    private func removeSpaceKey(_ key: String) {
+        store.update { prefs in
+            prefs.spaceKeys.removeValue(forKey: key)
+        }
+        HotkeyCenter.shared.reload()
+    }
+}
+
+// MARK: - Add Space key sheet
+
+/// A small recorder sheet. Pressing a key is the whole interaction; the Space number
+/// is a stepper because there are only nine. Escape cancels, Delete clears.
+private struct AddSpaceKeySheet: View {
+
+    var existing: [String: Int]
+    var onAdd: (String, Int) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var recorder = SpaceKeyRecorder()
+    @State private var spaceNumber = 1
+    @State private var note: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: LatticeTheme.Spacing.md) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Add a Space key")
+                    .font(.system(size: 15, weight: .semibold))
+                Text("Press a letter, a digit or a function key. Lattice adds ⌥ and ⇧⌥ around it.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            recorderField
+
+            if let message = recorder.message {
+                amberNote(message)
+            }
+
+            Stepper(value: $spaceNumber, in: 1...9) {
+                HStack(spacing: 6) {
+                    Text("Goes to Space")
+                        .font(.system(size: 13))
+                    Text("\(spaceNumber)")
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .latticeMonoDigits()
+                }
+            }
+            .accessibilityLabel("Space number")
+            .accessibilityValue("Space \(spaceNumber)")
+            .onChange(of: spaceNumber) { _, _ in note = nil }
+
+            if let note {
+                amberNote(note)
+            }
+
+            HStack(spacing: LatticeTheme.Spacing.xs) {
+                Spacer(minLength: 0)
+                Button("Cancel") {
+                    recorder.cancel()
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+                .accessibilityLabel("Cancel adding a Space key")
+
+                Button("Add Key") { add() }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(recorder.key == nil)
+                    .accessibilityLabel("Add this Space key")
+            }
+        }
+        .padding(LatticeTheme.Spacing.lg)
+        .frame(width: 380)
+        .onAppear {
+            recorder.onCancel = { dismiss() }
+            recorder.begin()
+        }
+        .onDisappear {
+            recorder.cancel()
+        }
+    }
+
+    private var recorderField: some View {
+        HStack(spacing: LatticeTheme.Spacing.sm) {
+            if let key = recorder.key {
+                KeyCap(text: KeyCombo.pretty(key))
+            } else {
+                Image(systemName: "keyboard")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+            }
+
+            Text(recorder.key == nil ? "Press a key…" : "Ready")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(recorder.key == nil ? Color.secondary : Color.primary)
+
+            Spacer(minLength: 0)
+
+            Button("Clear") { recorder.clear() }
+                .controlSize(.small)
+                .disabled(recorder.key == nil)
+                .accessibilityLabel("Clear the recorded key")
+        }
+        .padding(.horizontal, LatticeTheme.Spacing.sm)
+        .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: LatticeTheme.Radius.md, style: .continuous)
+                .fill(Color.latticeCardFill)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: LatticeTheme.Radius.md, style: .continuous)
+                .strokeBorder(Color.latticeHairline, lineWidth: LatticeTheme.hairline)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(recorder.key == nil
+                            ? "Press a key to bind"
+                            : "Recorded key \(KeyCombo.pretty(recorder.key ?? ""))")
+        .accessibilityHint("Escape cancels, Delete clears")
+    }
+
+    private func amberNote(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 5) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 10))
+                .foregroundStyle(Color(nsColor: .systemOrange))
+                .padding(.top, 1)
+            Text(text)
+                .font(.system(size: 11))
+                .foregroundStyle(Color(nsColor: .systemOrange))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func add() {
+        guard let key = recorder.key else { return }
+
+        if let existingSpace = existing[key], existingSpace != spaceNumber {
+            note = "“\(KeyCombo.pretty(key))” already jumps to Space \(existingSpace). Remove it first, or choose Space \(existingSpace)."
+            return
+        }
+
+        recorder.cancel()
+        onAdd(key, spaceNumber)
+        dismiss()
     }
 }

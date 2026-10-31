@@ -148,6 +148,80 @@ struct SettingsKeyChord: View {
     }
 }
 
+// MARK: - Space key capture
+//
+// A Space key is a bare key: the chords are built around it (⌥key, ⇧⌥key). So this
+// recorder deliberately ignores modifiers, and rejects anything that is not a letter,
+// a digit or a function key — the only things a Space key can sensibly be.
+
+@MainActor
+final class SpaceKeyRecorder: ObservableObject {
+
+    static let acceptedFunctionKeys: Set<String> = Set((1...12).map { "f\($0)" })
+
+    @Published private(set) var key: String?
+    @Published private(set) var message: String?
+
+    var onCancel: (() -> Void)?
+
+    private var monitor: Any?
+
+    var isRecording: Bool { monitor != nil }
+
+    static func isAccepted(_ name: String) -> Bool {
+        if acceptedFunctionKeys.contains(name) { return true }
+        guard name.count == 1, let character = name.first else { return false }
+        return character.isLetter || character.isNumber
+    }
+
+    func begin() {
+        cancel()
+        key = nil
+        message = nil
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            return self.handle(event) ? nil : event
+        }
+    }
+
+    func cancel() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+    }
+
+    func clear() {
+        key = nil
+        message = nil
+    }
+
+    private func handle(_ event: NSEvent) -> Bool {
+        switch event.keyCode {
+        case 53: // Escape
+            cancel()
+            onCancel?()
+            return true
+        case 51, 117: // Delete / forward delete
+            clear()
+            return true
+        case 48, 36, 76:
+            // Tab moves focus and Return activates a button; a sheet recorder must not
+            // swallow either, or the sheet cannot be used from the keyboard.
+            return false
+        default:
+            break
+        }
+
+        guard let name = KeyRecorder.keyName(for: event), Self.isAccepted(name) else {
+            message = "Use a letter, a digit or a function key."
+            return true
+        }
+
+        key = name
+        message = nil
+        return true
+    }
+}
+
 // MARK: - System shortcut awareness
 
 struct SettingsSystemShortcut {

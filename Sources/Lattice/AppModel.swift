@@ -93,7 +93,14 @@ public final class AppModel: ObservableObject {
         }
     }
 
+    private var hasPromptedForAccessibility = false
+
+    /// Shows the system prompt at most once per launch. Prompting again is what makes macOS
+    /// pull focus back to the alert while the user is trying to use the app.
     public func requestAccessibility() {
+        guard !engine.isTrusted else { accessibilityGranted = true; return }
+        guard !hasPromptedForAccessibility else { startPermissionWatcher(); return }
+        hasPromptedForAccessibility = true
         _ = engine.requestTrust()
         Task {
             for _ in 0..<120 {
@@ -116,7 +123,13 @@ public final class AppModel: ObservableObject {
         rebuildWindowCache()
     }
 
+    private var demoWindows: [WindowID: ManagedWindow] = [:]
+    private var demodOrder: [WindowID] = []
+
+    public var isDemo: Bool { !demoWindows.isEmpty }
+
     public func rebuildWindowCache() {
+        if isDemo { return }
         var map: [SpaceID: [ManagedWindow]] = [:]
         for window in engine.windows.values where !window.isMinimized {
             map[window.space, default: []].append(window)
@@ -133,7 +146,9 @@ public final class AppModel: ObservableObject {
 
     public func dispatch(_ command: CommandID) {
         guard accessibilityGranted else {
-            requestAccessibility()
+            // Never raise the system prompt from a shortcut: it steals focus mid-keystroke.
+            note(action: "Accessibility needed — open Settings ▸ Privacy")
+            startPermissionWatcher()
             return
         }
         let space = tiler.focusedSpace()
@@ -183,6 +198,30 @@ public final class AppModel: ObservableObject {
         case .undo: tiler.undo()
         }
         note(action: command.title)
+    }
+
+    /// Design-review fixture: real displays and Spaces, invented windows. Used only when
+    /// `LATTICE_DEMO=1`, so every screen can be rendered without Accessibility permission.
+    public func installDemoWindows(_ windows: [WindowID: ManagedWindow], order: [WindowID]) {
+        demoWindows = windows
+        demodOrder = order
+        var map: [SpaceID: [ManagedWindow]] = [:]
+        for window in windows.values {
+            map[window.space, default: []].append(window)
+        }
+        windowsBySpace = map
+        focusedWindow = windows[order.first ?? WindowID(0)]
+        accessibilityGranted = true
+        objectWillChange.send()
+    }
+
+    /// Space navigation entry points for the hotkey layer and the CLI.
+    public func goToSpace(_ number: Int) {
+        tiler.goToSpace(number: number)
+    }
+
+    public func moveFocusedWindowToSpace(_ number: Int) {
+        tiler.moveWindowToSpace(number: number)
     }
 
     public func setEnabled(_ enabled: Bool) {
@@ -238,6 +277,7 @@ extension Notification.Name {
     public static let latticeShowPalette = Notification.Name("lattice.showPalette")
     public static let latticeShowCheatSheet = Notification.Name("lattice.showCheatSheet")
     public static let latticeShowMainWindow = Notification.Name("lattice.showMainWindow")
+    public static let latticeShowSettings = Notification.Name("lattice.showSettings")
 }
 
 extension AppModel: WindowEngineDelegate {

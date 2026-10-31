@@ -136,7 +136,8 @@ public enum TilingSolver {
                              masterRatio: Double = 0.62,
                              stackPeek: CGFloat = 14,
                              gridColumns: Int = 0,
-                             minimum: CGSize = TilingGeometry.hardMinimumSize) -> Solution {
+                             minimum: CGSize = TilingGeometry.hardMinimumSize,
+                             minimums: [CGSize] = []) -> Solution {
         let hard = TilingGeometry.hardMinimumSize
         let prefW = max(hard.width, minimum.width)
         let prefH = max(hard.height, minimum.height)
@@ -212,26 +213,53 @@ public enum TilingSolver {
             return considered.allSatisfy { $0.width >= width - 0.5 && $0.height >= height - 0.5 }
         }
 
+        // Each window's own floor: the app's AXMinSize, the user's minimum, and our hard floor.
+        // Planning around the real minimum is what stops the tiler asking for a 768x530 tile
+        // that the app will refuse, which is what produced ragged, gappy layouts.
+        let perWindowMin: [CGSize] = (0..<count).map { index in
+            let appMin = index < minimums.count ? minimums[index] : .zero
+            return CGSize(width: max(hard.width, max(prefW, appMin.width)),
+                          height: max(hard.height, max(prefH, appMin.height)))
+        }
+
+        func fits(_ frames: [CGRect], kind: LayoutKind) -> Bool {
+            guard !frames.isEmpty else { return false }
+            if kind == .stack, let full = frames.max(by: { $0.width < $1.width }) {
+                return full.width >= perWindowMin.map(\.width).max()! - 0.5
+                    && full.height >= perWindowMin.map(\.height).max()! - 0.5
+            }
+            return frames.enumerated().allSatisfy { index, frame in
+                guard index < perWindowMin.count else { return true }
+                let need = perWindowMin[index]
+                return frame.width >= need.width - 0.5 && frame.height >= need.height - 0.5
+            }
+        }
+
         var chosenKind = layout
         var chosenColumns = gridColumns
         var frames = build(count, chosenKind, chosenColumns)
 
-        // 1. Try to keep the user's preferred minimum. If the chosen layout cannot, fall back
-        //    to a grid — first automatic, then sized so a cell is at least the preferred minimum.
-        if count > 1 && !meets(frames, kind: chosenKind, prefW, prefH) {
-            var best = (kind: chosenKind, columns: chosenColumns, frames: frames,
-                        score: score(frames, chosenKind))
-            let preferredColumns = TilingGeometry.capacity(total: content.width, gap: usableGap, minimum: prefW)
-            for candidate in [(LayoutKind.grid, 0), (LayoutKind.grid, preferredColumns)] {
-                let candidateFrames = build(count, candidate.0, candidate.1)
-                let candidateScore = score(candidateFrames, candidate.0)
-                if candidateScore > best.score + 0.5 {
-                    best = (candidate.0, candidate.1, candidateFrames, candidateScore)
+        // 1. If the layout the user picked cannot honour the real minimums, look for the densest
+        //    arrangement that can, before falling back to fewer windows on screen.
+        if count > 1 && !fits(frames, kind: chosenKind) {
+            var best: (kind: LayoutKind, columns: Int, frames: [CGRect], note: String)? = nil
+            let maxColumns = max(1, count)
+            for columns in stride(from: maxColumns, through: 1, by: -1) {
+                let candidate = build(count, .grid, columns)
+                if fits(candidate, kind: .grid) {
+                    best = (.grid, columns, candidate,
+                            "\(chosenKind.rawValue) cannot honour app minimums; using a \(columns)-column grid")
+                    break
                 }
             }
-            if best.kind != chosenKind || best.columns != chosenColumns {
-                notes.append("\(chosenKind.rawValue) could not meet \(Int(prefW))x\(Int(prefH)); using \(best.kind.rawValue)"
-                             + (best.columns > 0 ? " (\(best.columns) columns)" : ""))
+            if best == nil {
+                let candidate = build(count, .columns, max(1, TilingGeometry.capacity(total: content.width, gap: usableGap, minimum: perWindowMin.map(\.width).max() ?? prefW)))
+                if fits(candidate, kind: .columns) {
+                    best = (.columns, 0, candidate, "\(chosenKind.rawValue) cannot honour app minimums; using columns")
+                }
+            }
+            if let best {
+                notes.append(best.note)
                 chosenKind = best.kind
                 chosenColumns = best.columns
                 frames = best.frames
@@ -256,6 +284,24 @@ public enum TilingSolver {
             }
             chosenKind = .grid
             return finish(out, kind: chosenKind, notes: notes, hard: hard)
+        }
+
+        // 3. If, even after degradation, some windows cannot reach their own minimum, tile only
+        //    as many as genuinely fit and leave the rest untouched. Asking an app for a window
+        //    smaller than it allows is what makes a Space look ragged, so we stop asking.
+        if count > 1, !fits(frames, kind: chosenKind) {
+            let widest = perWindowMin.map(\.width).max() ?? hard.width
+            let tallest = perWindowMin.map(\.height).max() ?? hard.height
+            let columns = max(1, TilingGeometry.capacity(total: content.width, gap: usableGap, minimum: widest))
+            let rows = max(1, TilingGeometry.capacity(total: content.height, gap: usableGap, minimum: tallest))
+            let capacity = max(1, min(count, columns * rows))
+            if capacity < count {
+                notes.append("app minimums allow \(capacity) of \(count) windows on this display; leaving \(count - capacity) untouched")
+                let gridFrames = build(capacity, .grid, columns)
+                var out: [CGRect?] = gridFrames.map { $0 }
+                out.append(contentsOf: Array(repeating: nil, count: count - capacity))
+                return finish(out, kind: .grid, notes: notes, hard: hard)
+            }
         }
 
         return finish(frames.map { $0 }, kind: chosenKind, notes: notes, hard: hard)

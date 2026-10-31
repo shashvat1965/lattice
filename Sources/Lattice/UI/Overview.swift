@@ -211,7 +211,8 @@ struct Overview: View {
         DisplayMapCard(
             display: display,
             entry: entry(for: display),
-            windows: windows(for: display),
+            windows: tiledWindows(for: display),
+            floating: floatingWindows(for: display),
             focused: model.focusedWindow?.id,
             onFocus: { id in
                 model.engine.focus(id)
@@ -306,6 +307,20 @@ struct Overview: View {
             }
         ordered.append(contentsOf: rest)
         return ordered
+    }
+
+    /// Only the windows the tiler is actually arranging. Floating windows are real, but drawing
+    /// them on the map makes it look like the layout is broken — they overlap by definition.
+    private func tiledWindows(for display: DisplayInfo) -> [ManagedWindow] {
+        windows(for: display).filter { window in
+            !window.isFullscreen && !model.tiler.isFloating(window.id) && !window.isFloating
+        }
+    }
+
+    private func floatingWindows(for display: DisplayInfo) -> [ManagedWindow] {
+        windows(for: display).filter { window in
+            window.isFullscreen || model.tiler.isFloating(window.id) || window.isFloating
+        }
     }
 
     /// Every window currently drawn on any display's active Space.
@@ -543,6 +558,7 @@ private struct DisplayMapCard: View {
     var display: DisplayInfo
     var entry: SpaceManager.DisplaySpaces?
     var windows: [ManagedWindow]
+    var floating: [ManagedWindow]
     var focused: WindowID?
     var onFocus: (WindowID) -> Void
     var onShowSpaces: () -> Void
@@ -583,7 +599,9 @@ private struct DisplayMapCard: View {
     }
 
     private var windowCountText: String {
-        "\(windows.count) \(windows.count == 1 ? "window" : "windows")"
+        let tiled = "\(windows.count) tiled"
+        guard !floating.isEmpty else { return tiled }
+        return tiled + " · \(floating.count) floating"
     }
 
     private var mapSummary: String {
@@ -614,6 +632,12 @@ private struct DisplayMapCard: View {
                 .padding(.bottom, LatticeTheme.Spacing.sm)
                 .accessibilityLabel(mapSummary)
 
+                if !floating.isEmpty {
+                    floatingRow
+                        .padding(.horizontal, LatticeTheme.Spacing.md)
+                        .padding(.bottom, LatticeTheme.Spacing.sm)
+                }
+
                 LatticeDivider()
 
                 spaceLine
@@ -622,6 +646,45 @@ private struct DisplayMapCard: View {
             }
         }
         .accessibilityElement(children: .contain)
+    }
+
+    /// Windows the tiler deliberately leaves alone. Shown as chips instead of map tiles so the
+    /// map keeps meaning "the layout", and overlapping rectangles never look like a bug.
+    private var floatingRow: some View {
+        HStack(spacing: 6) {
+            Text("FLOATING")
+                .font(.system(size: 9, weight: .semibold))
+                .tracking(0.6)
+                .foregroundStyle(.tertiary)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(floating) { window in
+                        Button {
+                            onFocus(window.id)
+                        } label: {
+                            HStack(spacing: 4) {
+                                AppIcon(bundleID: window.bundleID, appName: window.appName, size: 12)
+                                Text(window.appName)
+                                    .font(.system(size: 10, weight: .medium))
+                                    .lineLimit(1)
+                            }
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(
+                                Capsule().fill(Color(nsColor: .controlBackgroundColor).opacity(0.6))
+                            )
+                            .overlay(
+                                Capsule().strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .help(window.title.isEmpty ? window.appName : window.title)
+                        .accessibilityLabel("\(window.appName), floating")
+                    }
+                }
+            }
+        }
     }
 
     private var headerRow: some View {

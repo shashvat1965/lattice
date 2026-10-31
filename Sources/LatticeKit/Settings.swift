@@ -345,6 +345,11 @@ public struct Preferences: Codable, Sendable, Equatable {
 
     // MARK: Input
     public var bindings: [CommandID: KeyCombo] = Preferences.defaultBindings
+    /// A second chord for a command, for people who want both a mnemonic and an arrow.
+    public var alternateBindings: [CommandID: KeyCombo] = Preferences.defaultAlternates
+    /// Which key jumps to which Space. `⌥<key>` switches, `⇧⌥<key>` sends the window.
+    /// Any key the keyboard can type is allowed, so letters work as well as digits.
+    public var spaceKeys: [String: Int] = Preferences.defaultSpaceKeys
     public var snapToEdges: Bool = true
     public var snapZoneSet: SnapZoneSet = .halvesAndQuarters
     public var dragToSwap: Bool = true
@@ -439,7 +444,8 @@ public struct Preferences: Codable, Sendable, Equatable {
         case animate, animationDuration, animationCurve, animateSnap, animateLayoutSwaps
         case borderEnabled, borderWidth, borderOpacity, borderColorHex, borderScope
         case floatBundleIDs, floatApps, unmanagedBundleIDs, rules, minTiledWidth, minTiledHeight
-        case bindings, snapToEdges, snapZoneSet, dragToSwap, focusFollowsMouse,
+        case bindings, alternateBindings, spaceKeys
+        case snapToEdges, snapZoneSet, dragToSwap, focusFollowsMouse,
              warpMouseOnFocus, showSnapPreview, snapPreviewStyle
         case followWindowAcrossSpaces, displayOverrides
         case enterFullScreenDelay, showMenuBarIcon, accentOverride, launchAtLogin, hasCompletedOnboarding
@@ -481,6 +487,8 @@ public struct Preferences: Codable, Sendable, Equatable {
         minTiledWidth = try c.decodeIfPresent(CGFloat.self, forKey: .minTiledWidth) ?? d.minTiledWidth
         minTiledHeight = try c.decodeIfPresent(CGFloat.self, forKey: .minTiledHeight) ?? d.minTiledHeight
         bindings = try c.decodeIfPresent([CommandID: KeyCombo].self, forKey: .bindings) ?? d.bindings
+        alternateBindings = try c.decodeIfPresent([CommandID: KeyCombo].self, forKey: .alternateBindings) ?? d.alternateBindings
+        spaceKeys = try c.decodeIfPresent([String: Int].self, forKey: .spaceKeys) ?? d.spaceKeys
         snapToEdges = try c.decodeIfPresent(Bool.self, forKey: .snapToEdges) ?? d.snapToEdges
         snapZoneSet = try c.decodeIfPresent(SnapZoneSet.self, forKey: .snapZoneSet) ?? d.snapZoneSet
         dragToSwap = try c.decodeIfPresent(Bool.self, forKey: .dragToSwap) ?? d.dragToSwap
@@ -501,41 +509,62 @@ public struct Preferences: Codable, Sendable, Equatable {
 
     public static let defaultBindings: [CommandID: KeyCombo] = {
         var map: [CommandID: KeyCombo] = [:]
-        let mods: Set<KeyCombo.Modifier> = [.control, .option]
-        map[.focusLeft] = KeyCombo(key: "h", modifiers: mods)
-        map[.focusRight] = KeyCombo(key: "l", modifiers: mods)
-        map[.focusUp] = KeyCombo(key: "k", modifiers: mods)
-        map[.focusDown] = KeyCombo(key: "j", modifiers: mods)
-        let shift: Set<KeyCombo.Modifier> = [.control, .option, .shift]
-        map[.moveLeft] = KeyCombo(key: "h", modifiers: shift)
-        map[.moveRight] = KeyCombo(key: "l", modifiers: shift)
-        map[.moveUp] = KeyCombo(key: "k", modifiers: shift)
-        map[.moveDown] = KeyCombo(key: "j", modifiers: shift)
+        // AeroSpace-compatible: ⌥ + HJKL focuses, ⇧⌥ + HJKL moves the window.
+        let option: Set<KeyCombo.Modifier> = [.option]
+        let shiftOption: Set<KeyCombo.Modifier> = [.option, .shift]
+        map[.focusLeft] = KeyCombo(key: "h", modifiers: option)
+        map[.focusRight] = KeyCombo(key: "l", modifiers: option)
+        map[.focusUp] = KeyCombo(key: "k", modifiers: option)
+        map[.focusDown] = KeyCombo(key: "j", modifiers: option)
+        map[.moveLeft] = KeyCombo(key: "h", modifiers: shiftOption)
+        map[.moveRight] = KeyCombo(key: "l", modifiers: shiftOption)
+        map[.moveUp] = KeyCombo(key: "k", modifiers: shiftOption)
+        map[.moveDown] = KeyCombo(key: "j", modifiers: shiftOption)
+
         let cmdCtrl: Set<KeyCombo.Modifier> = [.control, .option, .command]
         map[.swapLeft] = KeyCombo(key: "left", modifiers: cmdCtrl)
         map[.swapRight] = KeyCombo(key: "right", modifiers: cmdCtrl)
         map[.swapUp] = KeyCombo(key: "up", modifiers: cmdCtrl)
         map[.swapDown] = KeyCombo(key: "down", modifiers: cmdCtrl)
-        map[.grow] = KeyCombo(key: "equal", modifiers: mods)
-        map[.shrink] = KeyCombo(key: "minus", modifiers: mods)
-        map[.growHeight] = KeyCombo(key: "up", modifiers: mods)
-        map[.shrinkHeight] = KeyCombo(key: "down", modifiers: mods)
+
+        map[.grow] = KeyCombo(key: "equal", modifiers: option)
+        map[.shrink] = KeyCombo(key: "minus", modifiers: option)
+        map[.growHeight] = KeyCombo(key: "up", modifiers: [.control, .option])
+        map[.shrinkHeight] = KeyCombo(key: "down", modifiers: [.control, .option])
+
         map[.layoutDwindle] = KeyCombo(key: "1", modifiers: cmdCtrl)
         map[.layoutColumns] = KeyCombo(key: "2", modifiers: cmdCtrl)
         map[.layoutRows] = KeyCombo(key: "3", modifiers: cmdCtrl)
         map[.layoutGrid] = KeyCombo(key: "4", modifiers: cmdCtrl)
-        map[.cycleLayout] = KeyCombo(key: "space", modifiers: mods)
-        map[.toggleFloat] = KeyCombo(key: "f", modifiers: mods)
-        map[.toggleFullscreen] = KeyCombo(key: "f", modifiers: [.control, .option, .command])
-        map[.focusMode] = KeyCombo(key: "z", modifiers: cmdCtrl)
-        map[.center] = KeyCombo(key: "c", modifiers: mods)
-        map[.zoom] = KeyCombo(key: "return", modifiers: mods)
-        map[.nextSpace] = KeyCombo(key: "right", modifiers: [.option, .command])
-        map[.previousSpace] = KeyCombo(key: "left", modifiers: [.option, .command])
-        map[.commandPalette] = KeyCombo(key: "k", modifiers: [.control, .option, .command])
-        map[.cheatSheet] = KeyCombo(key: "slash", modifiers: [.control, .option, .command])
+        map[.layoutMaster] = KeyCombo(key: "5", modifiers: cmdCtrl)
+        map[.layoutStack] = KeyCombo(key: "6", modifiers: cmdCtrl)
+        map[.cycleLayout] = KeyCombo(key: "space", modifiers: option)
+        map[.toggleFloat] = KeyCombo(key: "f", modifiers: option)
+        map[.toggleFullscreen] = KeyCombo(key: "f", modifiers: [.option, .shift])
+        map[.focusMode] = KeyCombo(key: "z", modifiers: [.option, .shift])
+        map[.center] = KeyCombo(key: "c", modifiers: option)
+        map[.zoom] = KeyCombo(key: "return", modifiers: option)
+        map[.nextSpace] = KeyCombo(key: "right", modifiers: [.option, .control])
+        map[.previousSpace] = KeyCombo(key: "left", modifiers: [.option, .control])
+        map[.commandPalette] = KeyCombo(key: "k", modifiers: cmdCtrl)
+        map[.cheatSheet] = KeyCombo(key: "slash", modifiers: cmdCtrl)
         map[.toggleEnabled] = KeyCombo(key: "p", modifiers: cmdCtrl)
-        map[.showApp] = KeyCombo(key: "l", modifiers: [.control, .option, .command])
+        map[.showApp] = KeyCombo(key: "l", modifiers: cmdCtrl)
+        return map
+    }()
+
+    /// Arrow-key equivalents, so ⌥↑ moves a window up while ⇧⌥K does the same thing.
+    public static let defaultAlternates: [CommandID: KeyCombo] = [
+        .moveLeft: KeyCombo(key: "left", modifiers: [.option]),
+        .moveRight: KeyCombo(key: "right", modifiers: [.option]),
+        .moveUp: KeyCombo(key: "up", modifiers: [.option]),
+        .moveDown: KeyCombo(key: "down", modifiers: [.option]),
+    ]
+
+    /// ⌥1…⌥9 jump to Spaces, ⇧⌥1…⇧⌥9 send the focused window there. Letters are allowed.
+    public static let defaultSpaceKeys: [String: Int] = {
+        var map: [String: Int] = [:]
+        for number in 1...9 { map[String(number)] = number }
         return map
     }()
 }
