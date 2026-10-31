@@ -55,11 +55,16 @@ else
   codesign --force --deep --sign - --identifier "$BUNDLE_ID" "$APP"
 fi
 
-# Every build changes the binary, and macOS ties an Accessibility grant to the code that was
-# approved. Clear the old grant so the next launch asks once, cleanly, instead of leaving a
-# stale entry that looks enabled but is silently ignored.
-tccutil reset Accessibility "$BUNDLE_ID" >/dev/null 2>&1 || true
-echo "  accessibility grant cleared — re-enable Lattice on next launch"
+# macOS ties an Accessibility grant to the exact code that was approved, so a rebuild makes an
+# existing toggle stale (it still looks ON but is ignored). Clearing it makes the next launch
+# ask cleanly — but it also means you must re-grant after every build, so it is opt-in:
+#   LATTICE_RESET_GRANT=1 ./scripts/bundle.sh release
+if [ "${LATTICE_RESET_GRANT:-0}" = "1" ]; then
+  tccutil reset Accessibility "$BUNDLE_ID" >/dev/null 2>&1 || true
+  echo "  accessibility grant cleared (LATTICE_RESET_GRANT=1)"
+else
+  echo "  note: if Accessibility looks enabled but Lattice says it is off, toggle it off and on"
+fi
 
 # Thermo-nuclear hygiene: nothing but our own binary ships in the bundle.
 echo "▸ Verifying the signed bundle…"

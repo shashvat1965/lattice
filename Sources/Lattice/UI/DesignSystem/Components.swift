@@ -324,6 +324,12 @@ struct PermissionBanner: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: 330, alignment: .leading)
+            // The commonest failure is a grant made for an earlier build: the switch still
+            // reads on, macOS ignores it, and nothing tells you why.
+            Text("Already switched on? Turn it off and on again.")
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+                .padding(.top, 2)
         }
     }
 
