@@ -194,6 +194,7 @@ struct Overview: View {
                         .padding(.bottom, LatticeTheme.Spacing.sm)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
