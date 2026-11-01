@@ -70,7 +70,8 @@ private struct LayoutFineTuning: View {
     private var summary: String {
         let limit = "\(Int(prefs.prefs.minTiledWidth))×\(Int(prefs.prefs.minTiledHeight)) minimum"
         let insertion = prefs.prefs.insertionPolicy.title.lowercased()
-        return "\(limit) · new windows \(insertion)"
+        let crowding = prefs.prefs.tileCrowdedSpaces ? "tile anyway" : "leave crowded Spaces"
+        return "\(limit) · new windows \(insertion) · \(crowding)"
     }
 
     var body: some View {
@@ -88,6 +89,7 @@ private struct LayoutFineTuning: View {
 
             if expanded {
                 LayoutLimitsSection(prefs: prefs)
+                LayoutCrowdingSection(prefs: prefs)
                 LayoutInsertionSection(prefs: prefs)
             }
         }

@@ -465,7 +465,7 @@ public final class ControlServer {
         let title = window.title.isEmpty ? window.appName : "\(window.appName) — \(window.title)"
         // The native-drag fallback finishes asynchronously (and can be refused by the other
         // app), so this is a request, not a receipt. The log has the verified outcome.
-        return .success("Moving \(title) to Space \(number) — check `lattice spaces` in a moment", data: [
+        return .success("Moving \(title) to Space \(number) — if macOS refuses, drag it in Mission Control", data: [
             "window": .int(Int(focused.raw)),
             "app": .string(window.appName),
             "title": .string(window.title),

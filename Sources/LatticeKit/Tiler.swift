@@ -14,6 +14,12 @@ public extension TilerDelegate {
     func tiler(_ tiler: Tiler, didReportNote note: String?, space: SpaceID) {}
 }
 
+public extension Notification.Name {
+    /// Posted when macOS refuses a cross-Space move, so the UI can open Mission Control and
+    /// tell the person to drag the window thumbnail onto the target Desktop.
+    static let latticeManualSpaceMove = Notification.Name("lattice.manualSpaceMove")
+}
+
 /// Owns the tile order for each real Space and applies layout maths to it.
 ///
 /// Safety rules:
@@ -289,7 +295,8 @@ public final class Tiler {
                                           stackPeek: prefs.stackPeek,
                                           gridColumns: prefs.gridColumns,
                                           minimum: TilingGeometry.effectiveMinimum(prefs),
-                                          minimums: tileable.map { minimumSize(for: $0) })
+                                          minimums: tileable.map { minimumSize(for: $0) },
+                                          respectMinimums: !prefs.tileCrowdedSpaces)
         if let note = solution.note {
             LatticeDiagnostics.record("space \(space.raw): \(note)")
             Log.info("space \(space.raw): \(note)")
@@ -530,7 +537,10 @@ public final class Tiler {
     }
 
     public func isFloating(_ id: WindowID) -> Bool {
-        if engine.isStubborn(id) { return true }
+        // Stubborn means "this app refused a frame". In the default leave-alone mode that
+        // window is effectively floating; in tile-anyway mode it stays in the layout (its
+        // frame is just clamped) and only pauses for a few seconds.
+        if engine.isStubborn(id), !prefs.tileCrowdedSpaces { return true }
         if floating.contains(id) { return true }
         guard let window = engine.window(id) else { return true }
         if window.isFloating || window.isFullscreen || window.isMinimized { return true }
@@ -936,6 +946,15 @@ public final class Tiler {
             self.pendingSpaceMoves.remove(id)
             if !result.succeeded {
                 self.delegate?.tiler(self, didFail: "Could not move window to Space \(target.raw) — \(result.detail)")
+                // With SIP on, WindowServer refuses cross-process moves and macOS only offers
+                // the Mission Control drag. Open it with an instruction instead of failing
+                // silently; the user can finish the move in one gesture.
+                let number = entry.userSpaceIDs.firstIndex(of: target).map { $0 + 1 } ?? 0
+                NotificationCenter.default.post(name: .latticeManualSpaceMove,
+                                                object: nil,
+                                                userInfo: ["app": window.appName,
+                                                           "title": window.title,
+                                                           "space": number])
             }
             self.engine.refresh(reason: "space-move")
             if result.succeeded, follow, self.prefs.followWindowAcrossSpaces {

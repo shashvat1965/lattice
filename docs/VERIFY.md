@@ -41,9 +41,10 @@ all while apps are visibly open (AX trust, or an app with `activationPolicy != .
 3. ⌃⌥⌘1–4 should re-layout the Space; the windows animate, not jump.
 4. Switch to another Space and back: the layout and proportions must be remembered per
    Space, and the other Space's windows must be untouched.
-5. Open more windows than the display can hold at their minimum sizes. The Space must not
-   be rearranged into overlapping columns: Overview shows **Space full** and the windows
-   stay exactly where they were. Close one and tiling resumes.
+5. Crowded Spaces: by default Lattice keeps the chosen layout and lets each app clamp its
+   own size (yabai-style), so tiles can overlap. Settings ▸ Layouts ▸ **Limits and new
+   windows** ▸ **Crowded Spaces** switches to leaving such a Space untouched with a
+   **Space full** note in Overview.
 6. Settings ▸ Window border ▸ on. The focused window gets a ring in the chosen colour,
    and it follows focus without covering the window's own controls.
 
@@ -55,10 +56,12 @@ outside a zone must cancel with no movement.
 
 ## 4. Cross-Space move
 
-Focus a window, press ⌃⌥⌘2. The log should show either `windowServer` (own-process window)
-or `nativeDrag` for a third-party app, followed by a Space change if
-*Spaces ▸ Follow window* is on. If the window did not move, check the log for
-`refused` — the native drag needs Accessibility to post HID events.
+Focus a window, press ⌃⌥⌘2. The WindowServer path works only for Lattice's own windows;
+with SIP on it refuses third-party windows. Lattice then tries the native drag and, when
+macOS does not switch Spaces (edge-drag is not enabled on every Mac), it opens Mission
+Control and shows **“Drag *app* to Desktop N”**. Complete the drag there; the log has the
+verified outcome. This is the platform limit, not a Lattice bug — yabai needs its
+scripting addition (SIP off) for the same operation.
 
 ## 5. Shortcuts
 

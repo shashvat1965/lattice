@@ -80,8 +80,9 @@ in Shortcuts and the palette (unbound by default; bind them if you use two scree
   first row's index, so the whole list highlighted and Return ran the wrong command.
 - The palette's list no longer uses `LazyVStack` inside its non-activating panel, which
   rendered only the first row of each section.
-- A Space that cannot hold every window at its apps' minimum sizes is left untouched with
-  a **Space full** note, instead of being squeezed into a wall of overlapping columns.
+- A Space that cannot hold every window at its apps' minimum sizes no longer turns into a
+  wall of overlapping columns by accident. It has two explicit modes: tile anyway (default)
+  or leave the Space untouched with a **Space full** note.
 - Each app's real minimum size is remembered across launches.
 - The window border overlay never came on screen; new rings were never ordered front.
 - Focus with the arrow keys no longer dies one step after each successful switch.
@@ -109,8 +110,12 @@ in Shortcuts and the palette (unbound by default; bind them if you use two scree
 ## Known rough edges
 
 - Overview's map is a true-geometry diagram; when windows genuinely overlap (tiling
-  paused, or a Space that is too crowded), the tiles overlap on the map too. That is the
-  honest picture, not a layout bug.
-- A Space that cannot be tiled is left alone and says so. A future pass could pack the
-  windows that do fit and float the rest; leaving it untouched is the safe default today.
+  paused, “tile crowded Spaces” on with apps that clamp, or a Space that is too crowded),
+  the tiles overlap on the map too. That is the honest picture, not a layout bug.
+- Crowded Spaces have two explicit modes: **tile anyway** (default, yabai-style, apps
+  clamp and may overlap) and **leave the Space untouched** (with a “Space full” note).
+  The toggle lives in Layouts ▸ Limits and new windows.
+- Another app's window cannot be moved to another Space by an API on macOS with SIP on.
+  Lattice tries WindowServer, then the native drag, then opens Mission Control with a
+  “Drag *app* to Desktop N” instruction. Only a Mission Control drag can finish it.
 

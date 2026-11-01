@@ -97,10 +97,16 @@ Every one of them is rebindable in Settings ▸ Shortcuts, with live conflict de
 
 - Requires macOS 15 or later, Apple silicon or Intel.
 - Windows that refuse to be resized (a few Java and Electron apps) are detected and
-  left alone rather than fought with. If a Space cannot hold every window at the size
-  its apps demand, Lattice moves nothing on that Space and says **Space full** in
-  Overview; close or float a window and tiling resumes.
+  treated honestly. By default Lattice keeps the layout you asked for and lets each app
+  clamp its own size — windows can overlap, the same trade yabai makes. Settings ▸
+  Layouts ▸ **Crowded Spaces** switches to “leave the Space untouched and say **Space
+  full**” for people who would rather not see overlap.
+- Moving another app's window to another Space is limited by macOS: with SIP on,
+  WindowServer refuses cross-process moves and the system only offers the Mission Control
+  drag. Lattice tries the native path first and, when it is refused, opens Mission Control
+  with a “Drag *app* to Desktop N” instruction instead of failing silently.
 - Each app's real floor is remembered per bundle id, so a restart does not have to
   learn it again.
 - Logs live in `~/Library/Logs/Lattice/lattice.log`. `lattice doctor` (from the bundle's
-  `Contents/Helpers/`) explains why something is not working.
+  `Contents/Helpers/`, or on your PATH after `scripts/install-cli.sh`) explains why
+  something is not working.

@@ -137,7 +137,8 @@ public enum TilingSolver {
                              stackPeek: CGFloat = 14,
                              gridColumns: Int = 0,
                              minimum: CGSize = TilingGeometry.hardMinimumSize,
-                             minimums: [CGSize] = []) -> Solution {
+                             minimums: [CGSize] = [],
+                             respectMinimums: Bool = true) -> Solution {
         let hard = TilingGeometry.hardMinimumSize
         let prefW = max(hard.width, minimum.width)
         let prefH = max(hard.height, minimum.height)
@@ -238,6 +239,13 @@ public enum TilingSolver {
         var chosenKind = layout
         var chosenColumns = gridColumns
         var frames = build(count, chosenKind, chosenColumns)
+
+        // The "tile anyway" mode (yabai-style): keep the layout the user asked for, write every
+        // frame, and let each app clamp its own size. The result can overlap — that is the
+        // trade the setting makes. No minimum-size planning, no "Space full" note.
+        if !respectMinimums {
+            return finish(frames.map { $0 }, kind: chosenKind, notes: notes, hard: .zero)
+        }
 
         // 1. If the layout the user picked cannot honour the real minimums, look for the densest
         //    arrangement that can, before falling back to fewer windows on screen.

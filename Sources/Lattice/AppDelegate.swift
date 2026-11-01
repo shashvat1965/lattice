@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = AppModel.shared
     var windowController: MainWindowController?
     var statusBar: StatusBarController?
+    private var missionControlPending = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Two copies would fight over the same Spaces and rewrite each other's preferences.
@@ -74,6 +75,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.addObserver(forName: .latticeShowSpaces, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
             SpacesWindowController.show(model: self.model)
+        }
+
+        NotificationCenter.default.addObserver(forName: .latticeManualSpaceMove, object: nil, queue: .main) { [weak self] note in
+            guard let self, !self.missionControlPending else { return }
+            let app = note.userInfo?["app"] as? String ?? "the window"
+            let number = note.userInfo?["space"] as? Int ?? 0
+            let target = number > 0 ? "Desktop \(number)" : "another Desktop"
+            HUDController.shared.showToast("Drag \(app) to \(target) in Mission Control",
+                                           symbol: "rectangle.on.rectangle")
+            // macOS will not move another app's window across Spaces with SIP on; Mission
+            // Control is the one surface that can. Open it once the toast is visible.
+            self.missionControlPending = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                let paths = ["/System/Applications/Mission Control.app",
+                             "/Applications/Mission Control.app"]
+                if let path = paths.first(where: { FileManager.default.fileExists(atPath: $0) }) {
+                    NSWorkspace.shared.open(URL(fileURLWithPath: path))
+                } else {
+                    KeySynth.controlKey(126)
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    self.missionControlPending = false
+                }
+            }
         }
 
         installActivationLogging()

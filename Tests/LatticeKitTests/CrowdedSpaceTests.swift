@@ -38,4 +38,18 @@ final class CrowdedSpaceTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(solution.placedCount, 1)
         XCTAssertEqual(solution.layout, .grid)
     }
+
+    func testTileAnywayKeepsTheChosenLayoutAndPlacesEveryWindow() {
+        let solution = TilingSolver.solve(count: 9,
+                                          content: content,
+                                          gap: 12,
+                                          layout: .dwindle,
+                                          minimum: CGSize(width: 220, height: 140),
+                                          minimums: Array(repeating: CGSize(width: 800, height: 600), count: 9),
+                                          respectMinimums: false)
+        XCTAssertEqual(solution.layout, .dwindle)
+        XCTAssertEqual(solution.placedCount, 9, "tile-anyway must not leave windows out")
+        XCTAssertEqual(solution.skipped, 0)
+        XCTAssertNil(solution.note)
+    }
 }

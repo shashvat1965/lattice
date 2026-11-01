@@ -44,6 +44,7 @@ public final class AppModel: ObservableObject {
         tiler.delegate = self
         layout = prefs.prefs.layout
         isEnabled = prefs.prefs.enabled
+        engine.restoresRefusedFrames = !prefs.prefs.tileCrowdedSpaces
         EngineHolder.shared = engine
 
         prefs.observe { [weak self] new in
@@ -51,6 +52,7 @@ public final class AppModel: ObservableObject {
             Task { @MainActor in
                 self.layout = new.layout
                 self.isEnabled = new.enabled
+                self.engine.restoresRefusedFrames = !new.tileCrowdedSpaces
                 self.tiler.reconcile()
             }
         }

@@ -38,6 +38,30 @@ struct LayoutLimitsSection: View {
     }
 }
 
+/// What happens when a Space holds more windows than the display can fit at the sizes their
+/// apps demand. This is the one place the "yabai or leave it" trade-off is made.
+struct LayoutCrowdingSection: View {
+
+    @ObservedObject var prefs: LayoutsPreferences
+
+    var body: some View {
+        LayoutsSection("Crowded Spaces") {
+            LayoutsRow("Tile anyway", showsDivider: false) {
+                LayoutsToggle(isOn: prefs.binding(\.tileCrowdedSpaces),
+                              label: "Tile crowded Spaces")
+            }
+        } footer: {
+            Text(prefs.prefs.tileCrowdedSpaces
+                 ? "Keeps the layout and lets each app clamp its own size, so windows can overlap. The yabai behaviour."
+                 : "Leaves a Space that cannot fit every window exactly as it is and shows “Space full” in Overview.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 2)
+        }
+    }
+}
+
 /// What happens to the arrangement when a window arrives or leaves.
 struct LayoutInsertionSection: View {
 

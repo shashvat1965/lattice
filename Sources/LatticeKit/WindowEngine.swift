@@ -33,6 +33,9 @@ public final class WindowEngine {
 
     public private(set) var windows: [WindowID: ManagedWindow] = [:]
     public private(set) var focused: WindowID?
+    /// Put a window back where it was when the app refuses a frame. This is what "leave it
+    /// alone" means; in "tile anyway" mode the clamped frame stays at the requested position.
+    public var restoresRefusedFrames = true
 
     // MARK: - State
 
@@ -581,10 +584,13 @@ public final class WindowEngine {
 
     private func markStubborn(_ id: WindowID, reason: String) {
         guard stubbornUntil[id] == nil else { return }
-        stubbornUntil[id] = CFAbsoluteTimeGetCurrent() + 180
+        // In "tile anyway" mode the clamp is expected, so the window only needs a short pause
+        // to stop a write loop; a layout change should be able to move it again straight away.
+        let seconds: CFAbsoluteTime = restoresRefusedFrames ? 180 : 6
+        stubbornUntil[id] = CFAbsoluteTimeGetCurrent() + seconds
         stubbornReasons[id] = reason
         let name = windows[id]?.appName ?? "?"
-        Log.error("window \(id.raw) (\(name)) marked stubborn for 180s: \(reason)")
+        Log.error("window \(id.raw) (\(name)) marked stubborn for \(Int(seconds))s: \(reason)")
         LatticeDiagnostics.record("stubborn \(id.raw) \(name): \(reason)")
         delegate?.engine(self, didMarkStubborn: id, reason: reason)
     }
@@ -696,7 +702,9 @@ public final class WindowEngine {
                     // The app would not take the tile, so put it back where it was. Leaving it
                     // at the half-applied target is how a Space ends up with windows dumped on
                     // top of each other; "left alone" has to mean untouched.
-                    if let origin = pending.origin, !actual.isClose(to: origin, tolerance: 1.5) {
+                    if restoresRefusedFrames,
+                       let origin = pending.origin,
+                       !actual.isClose(to: origin, tolerance: 1.5) {
                         write(origin, to: pending.element, sizeFirst: false)
                         windows[id]?.frame = origin
                         Log.info("restored window \(id.raw) (\(windows[id]?.appName ?? "?")) to \(Self.format(origin)) after refusing \(Self.format(pending.target))")

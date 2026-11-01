@@ -342,6 +342,11 @@ public struct Preferences: Codable, Sendable, Equatable {
     public var rules: [AppRule] = []
     public var minTiledWidth: CGFloat = 220
     public var minTiledHeight: CGFloat = 140
+    /// What to do when a Space holds more windows than the display can fit at the sizes their
+    /// apps demand. `true` keeps the chosen layout and lets each app clamp (yabai-style, which
+    /// means windows can overlap); `false` leaves the Space exactly as it is and says "Space
+    /// full" in Overview.
+    public var tileCrowdedSpaces: Bool = true
     /// The floor each app actually enforces, learned from a refused write. Keyed by bundle id
     /// as `[width, height]`; persisted so a relaunch does not have to learn it again.
     public var learnedMinimums: [String: [CGFloat]] = [:]
@@ -447,7 +452,7 @@ public struct Preferences: Codable, Sendable, Equatable {
         case animate, animationDuration, animationCurve, animateSnap, animateLayoutSwaps
         case borderEnabled, borderWidth, borderOpacity, borderColorHex, borderScope
         case floatBundleIDs, floatApps, unmanagedBundleIDs, rules, minTiledWidth, minTiledHeight
-        case learnedMinimums
+        case tileCrowdedSpaces, learnedMinimums
         case bindings, alternateBindings, spaceKeys
         case snapToEdges, snapZoneSet, dragToSwap, focusFollowsMouse,
              warpMouseOnFocus, showSnapPreview, snapPreviewStyle
@@ -490,6 +495,7 @@ public struct Preferences: Codable, Sendable, Equatable {
         rules = try c.decodeIfPresent([AppRule].self, forKey: .rules) ?? d.rules
         minTiledWidth = try c.decodeIfPresent(CGFloat.self, forKey: .minTiledWidth) ?? d.minTiledWidth
         minTiledHeight = try c.decodeIfPresent(CGFloat.self, forKey: .minTiledHeight) ?? d.minTiledHeight
+        tileCrowdedSpaces = try c.decodeIfPresent(Bool.self, forKey: .tileCrowdedSpaces) ?? d.tileCrowdedSpaces
         learnedMinimums = try c.decodeIfPresent([String: [CGFloat]].self, forKey: .learnedMinimums) ?? d.learnedMinimums
         bindings = try c.decodeIfPresent([CommandID: KeyCombo].self, forKey: .bindings) ?? d.bindings
         alternateBindings = try c.decodeIfPresent([CommandID: KeyCombo].self, forKey: .alternateBindings) ?? d.alternateBindings
