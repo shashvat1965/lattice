@@ -46,11 +46,19 @@ cp "$CLI_BIN" "$CLI_DEST"
 # Prefer a stable signing identity so Accessibility grants survive rebuilds.
 # (Ad-hoc signatures are pinned to a cdhash, which changes on every build.)
 SIGN_ID="${LATTICE_SIGN_ID:-$(security find-identity -v -p codesigning 2>/dev/null | sed -n 's/.*"\(Apple Development: [^"]*\)"/\1/p' | head -1)}"
+SIGN_KEYCHAIN="${LATTICE_SIGN_KEYCHAIN:-$HOME/Library/Keychains/lattice-signing.keychain-db}"
+KEYCHAIN_ARGS=()
+if [ -z "$SIGN_ID" ] && [ -f "$SIGN_KEYCHAIN" ] \
+   && security find-identity -p codesigning "$SIGN_KEYCHAIN" 2>/dev/null | grep -q "Lattice Dev Signing"; then
+  SIGN_ID="Lattice Dev Signing"
+  KEYCHAIN_ARGS=(--keychain "$SIGN_KEYCHAIN")
+  security unlock-keychain -p "${LATTICE_SIGN_KEYCHAIN_PASSWORD:-lattice}" "$SIGN_KEYCHAIN" >/dev/null 2>&1 || true
+fi
 if [ -n "$SIGN_ID" ]; then
   echo "  signing as: $SIGN_ID"
   # No hardened runtime here: it adds nothing for a locally-run utility and has bitten
   # Accessibility grants on some macOS builds.
-  codesign --force --deep --sign "$SIGN_ID" --identifier "$BUNDLE_ID" "$APP"
+  codesign --force --deep "${KEYCHAIN_ARGS[@]}" --sign "$SIGN_ID" --identifier "$BUNDLE_ID" "$APP"
 else
   codesign --force --deep --sign - --identifier "$BUNDLE_ID" "$APP"
 fi

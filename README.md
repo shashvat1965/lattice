@@ -34,7 +34,7 @@ window actions, or jump straight to a window by name.
 ## Install
 
 ```
-./scripts/make-icon.swift      # (optional) regenerate the app icon
+./scripts/make-signing-identity.sh   # once: a stable local signing identity
 ./scripts/bundle.sh release
 open build/Lattice.app
 ```
@@ -42,6 +42,12 @@ open build/Lattice.app
 Drag `build/Lattice.app` into `/Applications`. First launch asks for Accessibility —
 that permission is what lets any window manager move windows; Lattice reads window
 frames and titles only, never window contents, and it has no network code.
+
+The signing identity matters: an ad-hoc signature is pinned to the exact binary, so
+macOS forgets the Accessibility grant after every rebuild. The script creates a
+self-signed certificate in its own keychain (and prints the one `add-trusted-cert`
+command needed to trust it once). After that, grants survive rebuilds. If the app ever
+looks enabled in System Settings but says "Not granted", toggle Lattice off and on once.
 
 ## How it works
 
@@ -91,5 +97,10 @@ Every one of them is rebindable in Settings ▸ Shortcuts, with live conflict de
 
 - Requires macOS 15 or later, Apple silicon or Intel.
 - Windows that refuse to be resized (a few Java and Electron apps) are detected and
-  left alone rather than fought with.
-- Logs live in `~/Library/Logs/Lattice/lattice.log`.
+  left alone rather than fought with. If a Space cannot hold every window at the size
+  its apps demand, Lattice moves nothing on that Space and says **Space full** in
+  Overview; close or float a window and tiling resumes.
+- Each app's real floor is remembered per bundle id, so a restart does not have to
+  learn it again.
+- Logs live in `~/Library/Logs/Lattice/lattice.log`. `lattice doctor` (from the bundle's
+  `Contents/Helpers/`) explains why something is not working.
