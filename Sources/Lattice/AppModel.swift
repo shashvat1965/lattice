@@ -24,6 +24,9 @@ public final class AppModel: ObservableObject {
     @Published public var isEnabled = true
     @Published public var lastAction: String?
     @Published public var recentActions: [String] = []
+    /// Why a Space is not in the exact layout you asked for (usually "too many windows for
+    /// their minimum sizes"), so the UI can say it instead of silently leaving tiles alone.
+    @Published public var layoutNotes: [SpaceID: String] = [:]
 
     public var onWindowsChanged: (([ManagedWindow]) -> Void)?
 
@@ -31,6 +34,9 @@ public final class AppModel: ObservableObject {
     private var spaceRefreshTask: DispatchWorkItem?
     private var permissionTimer: Timer?
     private var hasBootstrapped = false
+    /// The Space each display was showing at the last refresh, so a Space change can focus a
+    /// window on the display that actually changed instead of leaving focus on another screen.
+    private var lastCurrentByDisplay: [DisplayID: SpaceID] = [:]
 
     private init() {
         tiler = Tiler(engine: engine)
@@ -126,7 +132,26 @@ public final class AppModel: ObservableObject {
         }
         spaces = SpaceManager.shared.displaySpaces()
         focusedSpace = SpaceManager.shared.focusedSpace() ?? focusedSpace
+        recordCurrentSpaces()
         syncLayoutWithFocusedSpace()
+    }
+
+    private func recordCurrentSpaces() {
+        for entry in spaces {
+            if let current = entry.current { lastCurrentByDisplay[entry.display] = current }
+        }
+    }
+
+    /// The display whose current Space changed since the last look, if exactly one did.
+    private func changedDisplay() -> DisplayID? {
+        var changed: DisplayID?
+        for entry in spaces {
+            guard let current = entry.current else { continue }
+            if let previous = lastCurrentByDisplay[entry.display], previous != current {
+                changed = entry.display
+            }
+        }
+        return changed
     }
 
     public func refreshSpaces() {
@@ -136,6 +161,7 @@ public final class AppModel: ObservableObject {
         displays = NSScreen.screens.compactMap { screen in
             tiler.displayInfo(for: SpaceManager.displayID(for: screen))
         }
+        recordCurrentSpaces()
         rebuildWindowCache()
     }
 
@@ -314,7 +340,18 @@ extension AppModel: WindowEngineDelegate {
 
     public nonisolated func engineSpaceDidChange(_ engine: WindowEngine) {
         Task { @MainActor in
+            let changed = self.changedDisplay()
             self.refreshSpaces()
+            self.recordCurrentSpaces()
+            // If the Space changed under the user, focus belongs to the display that changed.
+            // Otherwise arrow keys keep acting on a window on the other monitor, and a Space
+            // command is sent to the wrong display.
+            if let display = changed,
+               let space = self.spaces.first(where: { $0.display == display })?.current,
+               self.engine.focused.flatMap({ self.engine.window($0)?.space }) != space,
+               let first = self.windowsBySpace[space]?.first(where: { !$0.isMinimized }) {
+                self.engine.focus(first.id)
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
                 self.tiler.reconcile(animated: false)
             }
@@ -330,6 +367,9 @@ extension AppModel: WindowEngineDelegate {
 extension AppModel: TilerDelegate {
     public nonisolated func tilerDidUpdate(_ tiler: Tiler, space: SpaceID, windows: [ManagedWindow]) {
         Task { @MainActor in
+            // The design fixture owns the map in demo mode; a real reconcile finishing in the
+            // background must not paint the user's actual windows over it.
+            guard !self.isDemo else { return }
             self.windowsBySpace[space] = windows
         }
     }
@@ -337,6 +377,16 @@ extension AppModel: TilerDelegate {
     public nonisolated func tiler(_ tiler: Tiler, didFail message: String) {
         Task { @MainActor in
             self.lastAction = message
+        }
+    }
+
+    public nonisolated func tiler(_ tiler: Tiler, didReportNote note: String?, space: SpaceID) {
+        Task { @MainActor in
+            if let note {
+                self.layoutNotes[space] = note
+            } else {
+                self.layoutNotes[space] = nil
+            }
         }
     }
 }

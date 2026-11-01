@@ -52,6 +52,7 @@ private struct InstalledApp: Identifiable, Hashable {
 /// this list and adds from Applications.
 @MainActor
 struct SettingsAppsSection: View {
+    @Environment(\.latticeSnapshotMode) private var snapshotMode
 
     @ObservedObject private var model = AppModel.shared
     @ObservedObject private var store = SettingsPreferences.shared
@@ -122,40 +123,7 @@ struct SettingsAppsSection: View {
 
     private var searchRow: some View {
         SettingsContentRow(showsDivider: true) {
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-
-                TextField("Search apps, or add one", text: $query)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12))
-                    .accessibilityLabel("Search apps, or add one")
-
-                if isLoading {
-                    ProgressView().controlSize(.small)
-                } else if !query.isEmpty {
-                    Button {
-                        query = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.tertiary)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Clear the app search")
-                }
-            }
-            .padding(.horizontal, LatticeTheme.Spacing.xs)
-            .frame(height: 26)
-            .background(
-                RoundedRectangle(cornerRadius: LatticeTheme.Radius.sm, style: .continuous)
-                    .fill(Color.latticeCardFill)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: LatticeTheme.Radius.sm, style: .continuous)
-                    .strokeBorder(Color.latticeHairline, lineWidth: LatticeTheme.hairline)
-            )
+            LatticeSearchField(text: $query, prompt: "Search apps, or add one", isLoading: isLoading)
         }
     }
 
@@ -195,7 +163,21 @@ struct SettingsAppsSection: View {
         }
     }
 
+    @ViewBuilder
     private func rowMenu(_ draft: AppRuleDraft) -> some View {
+        if snapshotMode {
+            // `Menu` is AppKit-backed and renders as the unsupported-view placeholder offscreen.
+            Image(systemName: "ellipsis.circle")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .frame(width: 22, height: 22)
+                .accessibilityHidden(true)
+        } else {
+            liveRowMenu(draft)
+        }
+    }
+
+    private func liveRowMenu(_ draft: AppRuleDraft) -> some View {
         Menu {
             Button("Tile it") { setBehaviour(.tiled, for: draft) }
             Button("Float it") { setBehaviour(.floating, for: draft) }

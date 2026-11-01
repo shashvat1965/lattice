@@ -47,6 +47,10 @@ struct LatticeSwitch: View {
         }
         .opacity(isEnabled ? 1 : 0.72)
         .focusable(isEnabled)
+        // The system draws a rectangular focus ring around the whole label row. A switch this
+        // small does not need a permanent ring; keyboard users still toggle it with Space and
+        // VoiceOver sees a real Toggle through the accessibility representation below.
+        .focusEffectDisabled()
         .onKeyPress(.space) {
             guard isEnabled else { return .ignored }
             toggle()
@@ -145,6 +149,9 @@ struct LatticeSwitchStyle: ToggleStyle {
         }
         .contentShape(Rectangle())
         .onTapGesture { configuration.isOn.toggle() }
+        // The system draws a rectangular focus ring around the whole label row; that reads as
+        // a selection box around the sentence, not as focus on the switch.
+        .focusEffectDisabled()
         .accessibilityRepresentation {
             Toggle(isOn: isOn) {
                 configuration.label

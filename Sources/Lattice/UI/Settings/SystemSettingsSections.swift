@@ -29,7 +29,7 @@ struct DisplaysSettingsSection: View {
             if model.displays.isEmpty {
                 SettingsContentRow(showsDivider: false) {
                     InlineHint(text: "No displays reported. Reconnect a screen, then reopen this page.",
-                               symbol: "display.slash")
+                               symbol: "display.trianglebadge.exclamationmark")
                 }
             } else {
                 ForEach(model.displays) { display in

@@ -7,6 +7,7 @@ import LatticeKit
 struct MenuBarPanel: View {
     @ObservedObject var model: AppModel
     var dismiss: () -> Void
+    @Environment(\.latticeSnapshotMode) private var snapshotMode
 
     static let width: CGFloat = 340
     static let height: CGFloat = 444
@@ -174,30 +175,40 @@ struct MenuBarPanel: View {
             if spaceWindows.isEmpty {
                 emptyWindows
             } else {
-                ScrollView(.vertical, showsIndicators: false) {
-                    LazyVStack(spacing: 1) {
-                        ForEach(spaceWindows) { window in
-                            MenuBarWindowRow(
-                                window: window,
-                                isFocused: model.focusedWindow?.id == window.id,
-                                onFocus: {
-                                    model.engine.focus(window.id)
-                                    dismiss()
-                                },
-                                onHide: {
-                                    model.engine.setMinimized(window.id, true)
-                                    model.rebuildWindowCache()
-                                }
-                            )
-                        }
+                if snapshotMode {
+                    windowRows
+                } else {
+                    ScrollView(.vertical, showsIndicators: false) {
+                        windowRows
                     }
-                    .padding(.horizontal, 6)
-                    .padding(.bottom, 6)
+                    .frame(maxHeight: .infinity)
                 }
-                .frame(maxHeight: .infinity)
             }
         }
         .frame(maxHeight: .infinity)
+    }
+
+    /// The list itself. `ImageRenderer` draws a `ScrollView` as blank, so the snapshot path
+    /// renders the rows directly.
+    private var windowRows: some View {
+        LazyVStack(spacing: 1) {
+            ForEach(spaceWindows) { window in
+                MenuBarWindowRow(
+                    window: window,
+                    isFocused: model.focusedWindow?.id == window.id,
+                    onFocus: {
+                        model.engine.focus(window.id)
+                        dismiss()
+                    },
+                    onHide: {
+                        model.engine.setMinimized(window.id, true)
+                        model.rebuildWindowCache()
+                    }
+                )
+            }
+        }
+        .padding(.horizontal, 6)
+        .padding(.bottom, 6)
     }
 
     private var emptyWindows: some View {
@@ -387,11 +398,9 @@ private struct MenuBarWindowRow: View {
                 .frame(width: 17, height: 17)
                 .accessibilityHidden(true)
         } else {
-            Image(systemName: "app.dashed")
-                .font(.system(size: 13))
-                .foregroundStyle(.tertiary)
-                .frame(width: 17, height: 17)
-                .accessibilityHidden(true)
+            // A pid can be stale (or, in the design fixture, fictional); the bundle id still
+            // resolves the real icon through NSWorkspace.
+            AppIcon(bundleID: window.bundleID, appName: window.appName, size: 17)
         }
     }
 }

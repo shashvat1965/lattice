@@ -132,7 +132,9 @@ final class BorderOverlayController {
             }
             panel.apply(frame: Self.flipped(frame), width: prefs.borderWidth,
                         color: color, opacity: prefs.borderOpacity)
-            if panel.windowNumber == 0 {
+            // `windowNumber` is assigned when the panel is created, not when it is ordered, so
+            // checking it meant a new ring was never brought on screen. Order by visibility.
+            if !panel.isVisible {
                 panel.orderFrontRegardless()
             }
         }

@@ -175,7 +175,7 @@ public enum CommandID: String, CaseIterable, Codable, Sendable, Identifiable {
         case .growHeight, .shrinkHeight: "arrow.up.and.down"
         case .layoutDwindle: "rectangle.split.3x1"
         case .layoutColumns: "rectangle.split.3x1"
-        case .layoutRows: "rectangle.split.1x3"
+        case .layoutRows: "rectangle.split.1x2"
         case .layoutGrid: "square.grid.2x2"
         case .layoutMaster: "rectangle.leadinghalf.inset.filled"
         case .layoutStack: "rectangle.stack"
@@ -197,7 +197,7 @@ public enum CommandID: String, CaseIterable, Codable, Sendable, Identifiable {
         case .space1, .space2, .space3, .space4, .space5,
              .space6, .space7, .space8, .space9: "square.dashed"
         case .moveToSpace1, .moveToSpace2, .moveToSpace3, .moveToSpace4, .moveToSpace5,
-             .moveToSpace6, .moveToSpace7, .moveToSpace8, .moveToSpace9: "square.and.arrow.right"
+             .moveToSpace6, .moveToSpace7, .moveToSpace8, .moveToSpace9: "arrow.right.square"
         }
     }
 }
@@ -342,6 +342,9 @@ public struct Preferences: Codable, Sendable, Equatable {
     public var rules: [AppRule] = []
     public var minTiledWidth: CGFloat = 220
     public var minTiledHeight: CGFloat = 140
+    /// The floor each app actually enforces, learned from a refused write. Keyed by bundle id
+    /// as `[width, height]`; persisted so a relaunch does not have to learn it again.
+    public var learnedMinimums: [String: [CGFloat]] = [:]
 
     // MARK: Input
     public var bindings: [CommandID: KeyCombo] = Preferences.defaultBindings
@@ -444,6 +447,7 @@ public struct Preferences: Codable, Sendable, Equatable {
         case animate, animationDuration, animationCurve, animateSnap, animateLayoutSwaps
         case borderEnabled, borderWidth, borderOpacity, borderColorHex, borderScope
         case floatBundleIDs, floatApps, unmanagedBundleIDs, rules, minTiledWidth, minTiledHeight
+        case learnedMinimums
         case bindings, alternateBindings, spaceKeys
         case snapToEdges, snapZoneSet, dragToSwap, focusFollowsMouse,
              warpMouseOnFocus, showSnapPreview, snapPreviewStyle
@@ -486,6 +490,7 @@ public struct Preferences: Codable, Sendable, Equatable {
         rules = try c.decodeIfPresent([AppRule].self, forKey: .rules) ?? d.rules
         minTiledWidth = try c.decodeIfPresent(CGFloat.self, forKey: .minTiledWidth) ?? d.minTiledWidth
         minTiledHeight = try c.decodeIfPresent(CGFloat.self, forKey: .minTiledHeight) ?? d.minTiledHeight
+        learnedMinimums = try c.decodeIfPresent([String: [CGFloat]].self, forKey: .learnedMinimums) ?? d.learnedMinimums
         bindings = try c.decodeIfPresent([CommandID: KeyCombo].self, forKey: .bindings) ?? d.bindings
         alternateBindings = try c.decodeIfPresent([CommandID: KeyCombo].self, forKey: .alternateBindings) ?? d.alternateBindings
         spaceKeys = try c.decodeIfPresent([String: Int].self, forKey: .spaceKeys) ?? d.spaceKeys

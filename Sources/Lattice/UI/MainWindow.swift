@@ -154,15 +154,10 @@ struct MainWindowView: View {
 
     private var sidebar: some View {
         List(selection: selection) {
-            Section {
-                ForEach(MainTab.sidebarPrimary) { tab in
-                    sidebarRow(tab)
-                }
-            }
-            Section("Configuration") {
-                ForEach(MainTab.sidebarConfiguration) { tab in
-                    sidebarRow(tab)
-                }
+            // Four rows, no group header: a header needs at least three rows beneath it to
+            // pay for its own vertical space, and this sidebar has four rows in total.
+            ForEach(MainTab.sidebarPrimary + MainTab.sidebarConfiguration) { tab in
+                sidebarRow(tab)
             }
         }
         .listStyle(.sidebar)

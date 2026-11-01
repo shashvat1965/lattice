@@ -374,6 +374,8 @@ struct SettingsColorRow: View {
     var isEnabled: Bool = true
     var onChange: (String?) -> Void
 
+    @Environment(\.latticeSnapshotMode) private var snapshotMode
+
     private var currentColor: Color {
         SettingsHexColor.color(from: hex) ?? Color(nsColor: .controlAccentColor)
     }
@@ -381,61 +383,73 @@ struct SettingsColorRow: View {
     var body: some View {
         SettingRow(title, subtitle: subtitle, showsDivider: showsDivider) {
             HStack(spacing: LatticeTheme.Spacing.sm) {
-                Menu {
-                    Button {
-                        onChange(nil)
-                    } label: {
-                        if hex == nil {
-                            Label("System accent", systemImage: "checkmark")
-                        } else {
-                            Text("System accent")
-                        }
-                    }
-
-                    Divider()
-
-                    ForEach(Array(SettingsHexColor.palette.enumerated()), id: \.offset) { _, entry in
-                        Button {
-                            onChange(entry.hex)
-                        } label: {
-                            if hex?.caseInsensitiveCompare(entry.hex) == .orderedSame {
-                                Label(entry.name, systemImage: "checkmark")
-                            } else {
-                                Text(entry.name)
-                            }
-                        }
-                    }
-                } label: {
+                if snapshotMode {
                     swatchLabel
+                    SnapshotColorWell(color: currentColor)
+                } else {
+                    colourMenu
+                    customColourPicker
                 }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .disabled(!isEnabled)
-                .accessibilityLabel("Border colour, \(SettingsHexColor.name(for: hex))")
-
-                ColorPicker(
-                    "Custom colour",
-                    selection: Binding(
-                        get: { currentColor },
-                        set: { colour in
-                            if let value = SettingsHexColor.hex(from: colour) {
-                                onChange(value)
-                            }
-                        }
-                    ),
-                    supportsOpacity: false
-                )
-                .labelsHidden()
-                .frame(width: 26)
-                .disabled(!isEnabled)
-                .help("Choose any colour")
-                .accessibilityLabel("Choose a custom border colour")
             }
         }
         .padding(.horizontal, LatticeTheme.Spacing.md)
         .opacity(isEnabled ? 1 : 0.55)
         .animation(LatticeTheme.animation, value: isEnabled)
+    }
+
+    private var colourMenu: some View {
+        Menu {
+            Button {
+                onChange(nil)
+            } label: {
+                if hex == nil {
+                    Label("System accent", systemImage: "checkmark")
+                } else {
+                    Text("System accent")
+                }
+            }
+
+            Divider()
+
+            ForEach(Array(SettingsHexColor.palette.enumerated()), id: \.offset) { _, entry in
+                Button {
+                    onChange(entry.hex)
+                } label: {
+                    if hex?.caseInsensitiveCompare(entry.hex) == .orderedSame {
+                        Label(entry.name, systemImage: "checkmark")
+                    } else {
+                        Text(entry.name)
+                    }
+                }
+            }
+        } label: {
+            swatchLabel
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .disabled(!isEnabled)
+        .accessibilityLabel("Border colour, \(SettingsHexColor.name(for: hex))")
+    }
+
+    private var customColourPicker: some View {
+        ColorPicker(
+            "Custom colour",
+            selection: Binding(
+                get: { currentColor },
+                set: { colour in
+                    if let value = SettingsHexColor.hex(from: colour) {
+                        onChange(value)
+                    }
+                }
+            ),
+            supportsOpacity: false
+        )
+        .labelsHidden()
+        .frame(width: 26)
+        .disabled(!isEnabled)
+        .help("Choose any colour")
+        .accessibilityLabel("Choose a custom border colour")
     }
 
     private var swatchLabel: some View {

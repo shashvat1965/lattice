@@ -32,9 +32,14 @@ enum DragSnapZone: String, CaseIterable, Sendable {
 
     /// The exact frame the window will receive, mirroring `LayoutMath` so a snapped window
     /// lines up with its tiled neighbours.
+    ///
+    /// `visibleFrame` is the tiling content rect (already inset by the outer gap and per-edge
+    /// padding), so the inner gap is used only *between* zones. Insetting here as well put a
+    /// snapped window 24 pt from the edge instead of 12, and made it a different size from the
+    /// same half produced by the tiler.
     func rect(in visibleFrame: CGRect, gap: CGFloat) -> CGRect {
         let gap = max(0, gap)
-        let inner = visibleFrame.insetBy(dx: gap, dy: gap)
+        let inner = visibleFrame
         guard inner.width > 1, inner.height > 1 else { return visibleFrame }
 
         let halfWidth = (inner.width - gap) / 2

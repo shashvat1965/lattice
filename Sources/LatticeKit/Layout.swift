@@ -37,7 +37,7 @@ public enum LayoutKind: String, Codable, CaseIterable, Sendable, Identifiable {
         switch self {
         case .dwindle: "rectangle.split.3x1"
         case .columns: "rectangle.split.3x1"
-        case .rows: "rectangle.split.1x3"
+        case .rows: "rectangle.split.1x2"
         case .grid: "square.grid.2x2"
         case .master: "rectangle.leadinghalf.inset.filled"
         case .stack: "rectangle.stack"

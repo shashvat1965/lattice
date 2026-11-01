@@ -86,6 +86,9 @@ public final class WindowEngine {
     private struct PendingWrite {
         var element: AXUIElement
         var target: CGRect
+        /// The frame the window had before we first asked it to move. If the write is refused,
+        /// this is where it goes back to, so "leave it alone" really means leave it alone.
+        var origin: CGRect?
         var attempts: Int
         var deadline: CFAbsoluteTime
     }
@@ -517,7 +520,7 @@ public final class WindowEngine {
         } else {
             for target in targets {
                 write(target.to, to: target.element, sizeFirst: false)
-                markPending(target.id, element: target.element, target: target.to, attempts: 0)
+                markPending(target.id, element: target.element, target: target.to, origin: target.from, attempts: 0)
             }
             scheduleVerification(after: 0.12)
         }
@@ -617,9 +620,10 @@ public final class WindowEngine {
         return true
     }
 
-    private func markPending(_ id: WindowID, element: AXUIElement, target: CGRect, attempts: Int) {
+    private func markPending(_ id: WindowID, element: AXUIElement, target: CGRect, origin: CGRect?, attempts: Int) {
         pendingWrites[id] = PendingWrite(element: element,
                                          target: target,
+                                         origin: origin,
                                          attempts: attempts,
                                          deadline: CFAbsoluteTimeGetCurrent() + 0.06)
         windows[id]?.frame = target
@@ -662,6 +666,7 @@ public final class WindowEngine {
                 write(pending.target, to: pending.element, sizeFirst: true)
                 pendingWrites[id] = PendingWrite(element: pending.element,
                                                  target: pending.target,
+                                                 origin: pending.origin,
                                                  attempts: 1,
                                                  deadline: now + 0.12)
                 retryScheduled = true
@@ -676,14 +681,25 @@ public final class WindowEngine {
                     windows[id]?.frame = actual
                     // Learn the app's real floor. Many apps clamp to a minimum they never
                     // report through AXMinSize; the failed write is the only source of truth.
-                    // Recording it here means the next plan asks for something achievable
-                    // instead of leaving the Space ragged with overlapping windows.
-                    if actual.width > pending.target.width + 1.5 || actual.height > pending.target.height + 1.5 {
+                    // Only learn when *something* about the write took effect: a window that
+                    // ignores the whole request (wrong Space, fullscreen, app holding it) is
+                    // not evidence that its current size is its minimum.
+                    let moved = pending.origin.map { !actual.isClose(to: $0, tolerance: 1.5) } ?? true
+                    if moved,
+                       actual.width > pending.target.width + 1.5 || actual.height > pending.target.height + 1.5 {
                         let learned = CGSize(width: max(actual.width, windows[id]?.minSize?.width ?? 0),
                                              height: max(actual.height, windows[id]?.minSize?.height ?? 0))
                         windows[id]?.minSize = learned
                         learnedMinimums[id] = learned
                         Log.info("learned minimum \(Int(learned.width))x\(Int(learned.height)) for \(windows[id]?.appName ?? "?") (window \(id.raw))")
+                    }
+                    // The app would not take the tile, so put it back where it was. Leaving it
+                    // at the half-applied target is how a Space ends up with windows dumped on
+                    // top of each other; "left alone" has to mean untouched.
+                    if let origin = pending.origin, !actual.isClose(to: origin, tolerance: 1.5) {
+                        write(origin, to: pending.element, sizeFirst: false)
+                        windows[id]?.frame = origin
+                        Log.info("restored window \(id.raw) (\(windows[id]?.appName ?? "?")) to \(Self.format(origin)) after refusing \(Self.format(pending.target))")
                     }
                     markStubborn(id, reason: "frame mismatch after 2 writes (wanted \(Self.format(pending.target)) got \(Self.format(actual)))")
                 } else {
@@ -729,7 +745,7 @@ public final class WindowEngine {
                 timer.invalidate()
                 self.animationTimer = nil
                 for target in targets {
-                    self.markPending(target.id, element: target.element, target: target.to, attempts: 0)
+                    self.markPending(target.id, element: target.element, target: target.to, origin: target.from, attempts: 0)
                     self.windows[target.id]?.frame = target.to
                 }
                 self.scheduleVerification(after: 0.12)
@@ -744,17 +760,23 @@ public final class WindowEngine {
     private func updateFocusedWindow() {
         let systemWide = AXUIElementCreateSystemWide()
         guard let focusedApp = systemWide.elementAttribute(kAXFocusedApplicationAttribute) else {
-            if focused != nil {
-                focused = nil
-                delegate?.engine(self, didFocus: nil)
-            }
+            // Same transient case: keep the last known window rather than dropping focus.
             return
         }
         guard let axWindow = focusedApp.elementAttribute(kAXFocusedWindowAttribute) else {
-            clearFocused()
+            // Many apps report no focused window for a beat during activation, and the
+            // system-wide query can come back empty while the app is switching. Clearing the
+            // pointer here made arrow-key focus die one step after every successful switch:
+            // `focus -> Open Design` was immediately followed by `focused = nil`. Keep the last
+            // known window instead; `pruneOrder` clears it when that window actually vanishes.
             return
         }
-        guard let wid = windowID(of: axWindow, pid: nil) else { return }
+        guard let wid = windowID(of: axWindow, pid: nil), windows[wid] != nil else {
+            // The focused AX window can be a sheet, a palette, or a window we deliberately do
+            // not manage. Recording its id made `focusedApp` (and every arrow-key command)
+            // point at a window that is not in the tile order. Keep the last managed window.
+            return
+        }
         if focused != wid {
             focused = wid
             delegate?.engine(self, didFocus: windows[wid])

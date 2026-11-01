@@ -81,9 +81,13 @@ struct Overview: View {
         return "\(displayName) · Space \(number) of \(userSpaces.count)"
     }
 
-    private var problem: (text: String, symbol: String)? {
-        if !model.accessibilityGranted { return ("Accessibility off", "lock.fill") }
-        if !model.isEnabled { return ("Tiling paused", "pause.fill") }
+    private var problem: (text: String, symbol: String, detail: String?)? {
+        if !model.accessibilityGranted { return ("Accessibility off", "lock.fill", nil) }
+        if !model.isEnabled { return ("Tiling paused", "pause.fill", nil) }
+        if let note = model.layoutNotes[model.focusedSpace],
+           note.contains("leaving") || note.contains("untiled") || note.hasPrefix("Space full") {
+            return ("Space full", "rectangle.compress.vertical", note)
+        }
         return nil
     }
 
@@ -105,6 +109,8 @@ struct Overview: View {
 
             if let problem {
                 StatusPill(text: problem.text, tone: .warning, symbol: problem.symbol)
+                    .help(problem.detail ?? problem.text)
+                    .accessibilityLabel(problem.detail ?? problem.text)
             }
 
             followToggle
@@ -112,17 +118,30 @@ struct Overview: View {
     }
 
     private var followToggle: some View {
-        Toggle("Follow a window to its Space", isOn: Binding(
+        Toggle(isOn: Binding(
             get: { PreferencesStore.shared.prefs.followWindowAcrossSpaces },
             set: { newValue in
                 PreferencesStore.shared.update { $0.followWindowAcrossSpaces = newValue }
                 prefsRevision &+= 1
             }
-        ))
+        )) {
+            // The full sentence is the right label at a comfortable width; at the 900 pt
+            // minimum it would push the switch past the window edge, so shorten before
+            // clipping anything.
+            ViewThatFits(in: .horizontal) {
+                Text("Follow a window to its Space")
+                Text("Follow window")
+                EmptyView()
+            }
+        }
         .toggleStyle(.latticeSwitch)
+        .focusEffectDisabled()
+        .focusable(false)
         .controlSize(.small)
         .font(.system(size: 12))
         .fixedSize()
+        .help("Follow a window to its Space")
+        .accessibilityLabel("Follow a window to its Space")
     }
 
     // MARK: - Displays
@@ -284,18 +303,24 @@ struct Overview: View {
             Button {
                 SpaceManager.shared.activate(space, on: display)
             } label: {
-                HStack(spacing: 4) {
+                HStack(spacing: 6) {
                     Text("\(number)")
                         .font(.system(size: 11, weight: .semibold).monospacedDigit())
                     if let key {
                         Text(key)
                             .font(.system(size: 9.5, weight: .medium).monospacedDigit())
-                            .foregroundStyle(isCurrent ? Color.white.opacity(0.85) : Color.secondary)
+                            .foregroundStyle(isCurrent ? Color.white.opacity(0.92) : Color.secondary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1.5)
+                            .background(
+                                Capsule(style: .continuous)
+                                    .fill(isCurrent ? Color.white.opacity(0.18) : Color.primary.opacity(0.06))
+                            )
                     }
                 }
                 .foregroundStyle(isCurrent ? Color.white : Color.primary)
-                .padding(.leading, 9)
-                .padding(.trailing, 6)
+                .padding(.leading, 10)
+                .padding(.trailing, key == nil ? 10 : 7)
                 .padding(.vertical, 4)
                 .contentShape(Rectangle())
             }
@@ -310,7 +335,7 @@ struct Overview: View {
                 Image(systemName: layout.symbol)
                     .font(.system(size: 9.5, weight: .medium))
                     .foregroundStyle(isCurrent ? Color.white.opacity(0.9) : Color.secondary)
-                    .frame(width: 16, height: 16)
+                    .frame(width: 18, height: 18)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -318,8 +343,8 @@ struct Overview: View {
             .accessibilityLabel("Layout for Space \(number): \(layout.title)")
             .menuIndicator(.hidden)
             .fixedSize()
-            .help("Layout for Space \(number)")
-            .accessibilityLabel("Layout for Space \(number): \(layout.title)")
+            .padding(.leading, 2)
+            .padding(.trailing, 5)
         }
         .background(
             Capsule(style: .continuous)
@@ -555,23 +580,28 @@ private struct DisplaySurface: View {
 
     var body: some View {
         GeometryReader { geo in
-            let size = geo.size
-            let outerRadius = max(6, min(12, min(size.width, size.height) * 0.05))
+            let bounds = geo.size
             let frame = display.frame
             let visible = display.visibleFrame
-            let scaleX = size.width / max(1, frame.width)
-            let scaleY = size.height / max(1, frame.height)
+            // Keep the display's own aspect ratio. Stretching the map to fill the card made
+            // every window look wider than it is, which is the one thing a "true geometry"
+            // map cannot do.
+            let fitted = fittedRect(for: frame.size, in: bounds)
+            let scale = fitted.width / max(1, frame.width)
+            let outerRadius = max(6, min(12, min(fitted.width, fitted.height) * 0.035))
             let visibleRect = CGRect(
-                x: (visible.minX - frame.minX) * scaleX,
-                y: (visible.minY - frame.minY) * scaleY,
-                width: visible.width * scaleX,
-                height: visible.height * scaleY
+                x: fitted.minX + (visible.minX - frame.minX) * scale,
+                y: fitted.minY + (visible.minY - frame.minY) * scale,
+                width: visible.width * scale,
+                height: visible.height * scale
             )
             let innerRadius = max(4, outerRadius * 0.55)
 
             ZStack(alignment: .topLeading) {
                 RoundedRectangle(cornerRadius: outerRadius, style: .continuous)
                     .fill(bezelFill)
+                    .frame(width: fitted.width, height: fitted.height)
+                    .offset(x: fitted.minX, y: fitted.minY)
 
                 RoundedRectangle(cornerRadius: innerRadius, style: .continuous)
                     .fill(screenFill)
@@ -602,8 +632,7 @@ private struct DisplaySurface: View {
                         .allowsHitTesting(false)
                 } else {
                     ForEach(Array(windows.enumerated()), id: \.element.id) { index, window in
-                        let frameInMap = mapRect(for: window, in: visibleRect,
-                                                 scaleX: scaleX, scaleY: scaleY)
+                        let frameInMap = mapRect(for: window, in: visibleRect, scale: scale)
                         MapWindowTile(
                             window: window,
                             isFocused: window.id == focused,
@@ -626,23 +655,34 @@ private struct DisplaySurface: View {
                 RoundedRectangle(cornerRadius: outerRadius, style: .continuous)
                     .strokeBorder(Color.primary.opacity(scheme == .dark ? 0.10 : 0.08),
                                   lineWidth: LatticeTheme.hairline)
+                    .frame(width: fitted.width, height: fitted.height)
+                    .offset(x: fitted.minX, y: fitted.minY)
             }
         }
         .accessibilityElement(children: .contain)
     }
 
+    /// The largest rectangle with `aspect`'s proportions that fits inside `bounds`, centred.
+    private func fittedRect(for aspect: CGSize, in bounds: CGSize) -> CGRect {
+        let width = max(1, aspect.width)
+        let height = max(1, aspect.height)
+        let scale = min(bounds.width / width, bounds.height / height)
+        let size = CGSize(width: width * scale, height: height * scale)
+        return CGRect(x: (bounds.width - size.width) / 2,
+                      y: (bounds.height - size.height) / 2,
+                      width: size.width,
+                      height: size.height)
+    }
+
     /// The real frame, converted into the map and kept inside the screen so a window is
     /// never silently dropped.
-    private func mapRect(for window: ManagedWindow,
-                         in visibleRect: CGRect,
-                         scaleX: CGFloat,
-                         scaleY: CGFloat) -> CGRect {
+    private func mapRect(for window: ManagedWindow, in visibleRect: CGRect, scale: CGFloat) -> CGRect {
         let frame = window.frame
         var rect = CGRect(
-            x: visibleRect.minX + (frame.minX - display.visibleFrame.minX) * scaleX,
-            y: visibleRect.minY + (frame.minY - display.visibleFrame.minY) * scaleY,
-            width: frame.width * scaleX,
-            height: frame.height * scaleY
+            x: visibleRect.minX + (frame.minX - display.visibleFrame.minX) * scale,
+            y: visibleRect.minY + (frame.minY - display.visibleFrame.minY) * scale,
+            width: frame.width * scale,
+            height: frame.height * scale
         )
         rect.size.width = max(4, min(rect.width, visibleRect.width))
         rect.size.height = max(4, min(rect.height, visibleRect.height))

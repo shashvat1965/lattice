@@ -266,7 +266,26 @@ public enum TilingSolver {
             }
         }
 
-        // 2. The hard floor: never place a window under 80x60. If the display cannot fit every
+        // 2. If, even after degradation, the real minimums cannot be met, tile only as many
+        //    windows as genuinely fit and leave the rest untouched. This has to run *before*
+        //    the 80x60 safety net: squeezing nine 900 pt apps into 156 pt columns is worse
+        //    than leaving them alone, and every refused write costs a visible jump and three
+        //    minutes of "stubborn" before the same mistake is tried again.
+        if count > 1, !fits(frames, kind: chosenKind) {
+            let widest = max(hard.width, perWindowMin.map(\.width).max() ?? hard.width)
+            let tallest = max(hard.height, perWindowMin.map(\.height).max() ?? hard.height)
+            let columns = max(1, TilingGeometry.capacity(total: content.width, gap: usableGap, minimum: widest))
+            let rows = max(1, TilingGeometry.capacity(total: content.height, gap: usableGap, minimum: tallest))
+            let capacity = max(1, min(count, columns * rows))
+            if capacity < count {
+                notes.append("Space full: only \(capacity) of \(count) windows fit at their minimum size")
+                var out: [CGRect?] = build(capacity, .grid, columns).map { $0 }
+                out.append(contentsOf: Array(repeating: nil, count: count - capacity))
+                return finish(out, kind: .grid, notes: notes, hard: hard)
+            }
+        }
+
+        // 3. The hard floor: never place a window under 80x60. If the display cannot fit every
         //    window at that size, tile the ones that fit and leave the rest where they are.
         if frames.contains(where: { $0.width < hard.width - 0.5 || $0.height < hard.height - 0.5 }) {
             let columns = TilingGeometry.capacity(total: content.width, gap: usableGap, minimum: hard.width)
@@ -284,24 +303,6 @@ public enum TilingSolver {
             }
             chosenKind = .grid
             return finish(out, kind: chosenKind, notes: notes, hard: hard)
-        }
-
-        // 3. If, even after degradation, some windows cannot reach their own minimum, tile only
-        //    as many as genuinely fit and leave the rest untouched. Asking an app for a window
-        //    smaller than it allows is what makes a Space look ragged, so we stop asking.
-        if count > 1, !fits(frames, kind: chosenKind) {
-            let widest = perWindowMin.map(\.width).max() ?? hard.width
-            let tallest = perWindowMin.map(\.height).max() ?? hard.height
-            let columns = max(1, TilingGeometry.capacity(total: content.width, gap: usableGap, minimum: widest))
-            let rows = max(1, TilingGeometry.capacity(total: content.height, gap: usableGap, minimum: tallest))
-            let capacity = max(1, min(count, columns * rows))
-            if capacity < count {
-                notes.append("app minimums allow \(capacity) of \(count) windows on this display; leaving \(count - capacity) untouched")
-                let gridFrames = build(capacity, .grid, columns)
-                var out: [CGRect?] = gridFrames.map { $0 }
-                out.append(contentsOf: Array(repeating: nil, count: count - capacity))
-                return finish(out, kind: .grid, notes: notes, hard: hard)
-            }
         }
 
         return finish(frames.map { $0 }, kind: chosenKind, notes: notes, hard: hard)

@@ -237,8 +237,13 @@ public final class ControlServer {
             "displayID": .string(String(entry.display.raw)),
             "layout": .string(model.prefs.prefs.layout(for: focused).rawValue),
             "layoutTitle": .string(model.prefs.prefs.layout(for: focused).title),
+            "layoutNote": .string(model.layoutNotes[focused] ?? ""),
             "windows": .int(windowsOnSpace),
             "windowsTotal": .int(totalWindows),
+            "focusedWindow": model.engine.focused.map { .int(Int($0.raw)) } ?? .null,
+            "focusedApp": model.engine.focused
+                .flatMap { model.engine.window($0)?.appName }
+                .map(ControlValue.string) ?? .null,
             "spacesTotal": .int(model.spaces.reduce(0) { $0 + $1.userSpaceIDs.count }),
             "version": .string(LatticeControl.versionSummary),
             "protocol": .int(LatticeControl.protocolVersion),
@@ -458,12 +463,15 @@ public final class ControlServer {
 
         model.tiler.moveWindowToSpace(number: number)
         let title = window.title.isEmpty ? window.appName : "\(window.appName) — \(window.title)"
-        return .success("Sent \(title) to Space \(number)", data: [
+        // The native-drag fallback finishes asynchronously (and can be refused by the other
+        // app), so this is a request, not a receipt. The log has the verified outcome.
+        return .success("Moving \(title) to Space \(number) — check `lattice spaces` in a moment", data: [
             "window": .int(Int(focused.raw)),
             "app": .string(window.appName),
             "title": .string(window.title),
             "space": .int(number),
             "spaceID": .string(String(entry.userSpaceIDs[number - 1].raw)),
+            "confirmed": .bool(false),
         ])
     }
 

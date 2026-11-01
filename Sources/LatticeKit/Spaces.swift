@@ -137,15 +137,25 @@ public final class SpaceManager: @unchecked Sendable {
     }
 
     public func space(for window: WindowID) -> SpaceID? {
-        spaces(for: window).first
+        let all = spaces(for: window)
+        // A window can be reported on more than one Space while it is moving, or when it is
+        // sticky. Prefer the Space the user can actually see; taking the first entry made a
+        // window on the visible Space look like it belonged to the Space we just left, and the
+        // engine then dropped it from the cache.
+        if let visible = all.first(where: { isVisible($0) }) { return visible }
+        return all.first
     }
 
     public func spaceAssignments(for windows: [WindowID]) -> [WindowID: SpaceID] {
         var map: [WindowID: SpaceID] = [:]
         map.reserveCapacity(windows.count)
+        let visible = visibleSpaceIDs()
         for id in windows {
-            if let space = SkyLight.spaces(forWindow: id).first {
-                map[id] = SpaceID(space)
+            let all = SkyLight.spaces(forWindow: id).map(SpaceID.init)
+            if let live = all.first(where: { visible.contains($0) }) {
+                map[id] = live
+            } else if let first = all.first {
+                map[id] = first
             }
         }
         return map

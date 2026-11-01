@@ -32,10 +32,10 @@ enum DemoData {
         }
 
         let fixtures: [(String, String, String, CGRect)] = [
-            ("ClueCode", "com.apple.dt.Xcode", "Lattice — Sources/AppModel.swift", rect(0.00, 0.00, 0.545, 1.00)),
-            ("Discord", "com.hnc.Discord", "#what-im-working-on | Clueso HQ", rect(0.545, 0.00, 0.230, 1.00)),
-            ("Aside", "com.aside.browser", "Jesper Qvist on X", rect(0.775, 0.00, 0.225, 0.50)),
-            ("Linear", "com.linear", "ENG-412 · Space management", rect(0.775, 0.50, 0.225, 0.50)),
+            ("Xcode", "com.apple.dt.Xcode", "Lattice — Sources/AppModel.swift", rect(0.00, 0.00, 0.545, 1.00)),
+            ("Figma", "com.figma.Desktop", "Lattice — Design system", rect(0.545, 0.00, 0.230, 1.00)),
+            ("Arc", "company.thebrowser.Browser", "github.com/shashvat1965/lattice", rect(0.775, 0.00, 0.225, 0.50)),
+            ("Spotify", "com.spotify.client", "Lattice Radio", rect(0.775, 0.50, 0.225, 0.50)),
         ]
 
         var windows: [WindowID: ManagedWindow] = [:]
@@ -73,7 +73,13 @@ enum DemoData {
                                          subrole: kAXStandardWindowSubrole as String)
 
         Log.info("DEMO applying \(windows.count) windows to space \(space) display \(display.id)")
+        // The fixture must not be reconciled against the real windows on this Mac, or the
+        // tiler publishes the real set back over it. Suspending only affects this demo run.
+        model.tiler.isSuspended = true
         model.installDemoWindows(windows, order: [WindowID(9000), WindowID(9001), WindowID(9002), WindowID(9003)])
         model.recentActions = ["Focus Left", "Columns", "Send to Space 2"]
+        // The fixture is a picture of the shipping state, not of this Mac's pause switch.
+        // This only changes the published flag; tiling stays exactly as paused as it was.
+        model.isEnabled = true
     }
 }

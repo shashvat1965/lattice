@@ -155,36 +155,7 @@ struct ShortcutsPane: View {
     }
 
     private var searchField: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
-            TextField("Search actions or shortcuts", text: $query)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12))
-                .accessibilityLabel("Search actions or shortcuts")
-            if !query.isEmpty {
-                Button {
-                    query = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.tertiary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Clear search")
-            }
-        }
-        .padding(.horizontal, LatticeTheme.Spacing.xs)
-        .frame(height: 26)
-        .background(
-            RoundedRectangle(cornerRadius: LatticeTheme.Radius.sm, style: .continuous)
-                .fill(Color.latticeCardFill)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: LatticeTheme.Radius.sm, style: .continuous)
-                .strokeBorder(Color.latticeHairline, lineWidth: LatticeTheme.hairline)
-        )
+        LatticeSearchField(text: $query, prompt: "Search actions or shortcuts")
     }
 
     /// A footnote, not a banner: the arrow chords are a real macOS collision and the
@@ -265,7 +236,7 @@ struct ShortcutsPane: View {
                     .padding(.vertical, 4)
 
                     if let count = currentSpaceCount, !orphanedKeys.isEmpty {
-                        Text("\(orphanedKeys.count) \(orphanedKeys.count == 1 ? "key points" : "keys point") past this display's \(count) Spaces")
+                        Text("\(orphanedKeys.count) \(orphanedKeys.count == 1 ? "key points" : "keys point") past this display's \(count) \(count == 1 ? "Space" : "Spaces")")
                             .font(.system(size: 10.5))
                             .foregroundStyle(.tertiary)
                             .padding(.horizontal, 8)
@@ -800,7 +771,8 @@ struct ShortcutsPane: View {
             Button("Show Cheat Sheet") {
                 NotificationCenter.default.post(name: .latticeShowCheatSheet, object: nil)
             }
-            .buttonStyle(.link)
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.accentColor)
             .font(.system(size: 11))
             .accessibilityLabel("Show the shortcut cheat sheet on screen")
         }

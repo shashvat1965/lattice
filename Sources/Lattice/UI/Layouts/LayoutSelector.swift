@@ -13,13 +13,18 @@ struct LayoutSelector: View {
         model.layout(for: model.focusedSpace)
     }
 
-    /// The real number of windows on this Space, so every thumbnail is honest.
+    /// The real number of windows on this Space, so every thumbnail is honest — but with
+    /// fewer than three windows the six cards collapse into near-identical single tiles and
+    /// the selector stops telling you anything. Show at least three; the real count takes
+    /// over as soon as the Space has that many.
     private var windowCount: Int {
         let tiled = model.tiler.tiledWindows(on: model.focusedSpace)
-        if !tiled.isEmpty { return tiled.count }
-        return (model.windowsBySpace[model.focusedSpace] ?? [])
-            .filter { !$0.isMinimized && !$0.isFloating && !$0.isFullscreen }
-            .count
+        let real = tiled.isEmpty
+            ? (model.windowsBySpace[model.focusedSpace] ?? [])
+                .filter { !$0.isMinimized && !$0.isFloating && !$0.isFullscreen }
+                .count
+            : tiled.count
+        return min(max(real, 3), 8)
     }
 
     var body: some View {

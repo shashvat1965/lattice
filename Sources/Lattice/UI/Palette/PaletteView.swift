@@ -67,8 +67,9 @@ final class PaletteState: ObservableObject {
             for group in PaletteGroup.allCases {
                 let groupItems = items.filter { $0.group == group }
                 guard !groupItems.isEmpty else { continue }
-                let sectionRows = groupItems.map { item in
-                    makeRow(item, indices: [], index: rows.count)
+                let base = rows.count
+                let sectionRows = groupItems.enumerated().map { offset, item in
+                    makeRow(item, indices: [], index: base + offset)
                 }
                 sections.append(PaletteSection(group: group, rows: sectionRows))
                 rows.append(contentsOf: sectionRows)
@@ -103,8 +104,9 @@ final class PaletteState: ObservableObject {
                 if lhs.match.score != rhs.match.score { return lhs.match.score > rhs.match.score }
                 return lhs.item.title.localizedStandardCompare(rhs.item.title) == .orderedAscending
             }
-            let sectionRows = sorted.map { entry in
-                makeRow(entry.item, indices: entry.match.indices, index: rows.count)
+            let base = rows.count
+            let sectionRows = sorted.enumerated().map { offset, entry in
+                makeRow(entry.item, indices: entry.match.indices, index: base + offset)
             }
             sections.append(PaletteSection(group: group, rows: sectionRows))
             rows.append(contentsOf: sectionRows)
@@ -374,7 +376,10 @@ struct CommandPaletteView: View {
         } else {
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
-                    LazyVStack(alignment: .leading, spacing: 0) {
+                    // A plain VStack, not LazyVStack: inside this non-activating panel the lazy
+                    // stack only materialised the first row of each section, leaving the rest of
+                    // the list blank. Sixty-eight rows are cheap to build eagerly.
+                    VStack(alignment: .leading, spacing: 0) {
                         ForEach(state.sections) { section in
                             Text(section.group.title.uppercased())
                                 .font(.system(size: 10, weight: .semibold))

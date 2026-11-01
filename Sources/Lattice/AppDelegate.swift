@@ -22,6 +22,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var statusBar: StatusBarController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Two copies would fight over the same Spaces and rewrite each other's preferences.
+        // LaunchServices usually reuses a running app, but running the binary directly (or a
+        // second build) can slip past it; hand over to the copy that is already running.
+        let siblings = NSRunningApplication
+            .runningApplications(withBundleIdentifier: "com.shashvat.lattice")
+            .filter { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
+        if let sibling = siblings.first {
+            Log.info("another Lattice is already running (pid \(sibling.processIdentifier)); activating it and exiting")
+            sibling.activate(options: [.activateIgnoringOtherApps])
+            NSApp.terminate(nil)
+            return
+        }
+
         AppDelegate.shared = self
         model.bootstrap()
         // Debug: open straight to a page, so a broken page can be reproduced without clicking.

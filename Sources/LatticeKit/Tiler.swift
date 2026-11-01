@@ -5,6 +5,13 @@ import CoreGraphics
 public protocol TilerDelegate: AnyObject {
     func tilerDidUpdate(_ tiler: Tiler, space: SpaceID, windows: [ManagedWindow])
     func tiler(_ tiler: Tiler, didFail message: String)
+    /// A sentence about how this Space had to be arranged, or nil when the chosen layout was
+    /// used exactly as asked. Used by the UI to explain "Space full" instead of looking broken.
+    func tiler(_ tiler: Tiler, didReportNote note: String?, space: SpaceID)
+}
+
+public extension TilerDelegate {
+    func tiler(_ tiler: Tiler, didReportNote note: String?, space: SpaceID) {}
 }
 
 /// Owns the tile order for each real Space and applies layout maths to it.
@@ -287,6 +294,20 @@ public final class Tiler {
             LatticeDiagnostics.record("space \(space.raw): \(note)")
             Log.info("space \(space.raw): \(note)")
         }
+        delegate?.tiler(self, didReportNote: solution.note, space: space)
+
+        // If the solver had to leave any window out because the display cannot hold them all
+        // at their own minimum sizes, move nothing at all. Tiling "as many as fit" rotates
+        // which window gets the one big slot every time the order changes, and the result is
+        // two windows stacked in the same rectangle. A Space that cannot be tiled is better
+        // left exactly as the user had it, with an explanation.
+        if solution.skipped > 0 {
+            let message = "space \(space.raw): \(solution.placedCount) of \(tileable.count) windows fit; leaving the Space untouched"
+            LatticeDiagnostics.record(message)
+            Log.info(message)
+            delegate?.tilerDidUpdate(self, space: space, windows: live)
+            return true
+        }
 
         var targets: [(id: WindowID, frame: CGRect)] = []
         for (index, id) in tileable.enumerated() {
@@ -305,6 +326,13 @@ public final class Tiler {
         }
 
         place(targets, animated: animated, reason: reason, context: "space \(space.raw)")
+
+        // A refused write is learned asynchronously by the engine; remember it shortly after
+        // so the next launch starts from the truth instead of re-learning it window by window.
+        let learnedIDs = tileable
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.persistLearnedMinimums(for: learnedIDs)
+        }
 
         LatticeDiagnostics.record("space \(space.raw): \(tileable.count) tiled, \(ids.count - tileable.count) floating, layout \(solution.layout.rawValue)"
                                   + (solution.skipped > 0 ? ", \(solution.skipped) deferred" : ""))
@@ -790,13 +818,48 @@ public final class Tiler {
 
     // MARK: - Undo
 
-    /// The largest of: what AX reports, what a refused write taught us, and nothing else.
+    /// The largest of: what AX reports, what a refused write taught us this session, what a
+    /// previous session learned for this app, and nothing else.
     private func minimumSize(for id: WindowID) -> CGSize {
         var size = engine.window(id)?.minSize ?? .zero
         if let learned = engine.learnedMinimum(id) {
             size = CGSize(width: max(size.width, learned.width), height: max(size.height, learned.height))
         }
+        if let bundleID = engine.window(id)?.bundleID,
+           let stored = prefs.learnedMinimums[bundleID], stored.count == 2 {
+            // A window cannot have a minimum larger than the screen it is on. Values outside
+            // that range are usually a whole-window refusal recorded as a minimum; ignore
+            // them rather than making the app permanently untilable.
+            let display = engine.window(id).flatMap { displayInfo(for: $0.display) }
+            let cap = CGSize(width: (display?.frame.width ?? 4096) * 0.95,
+                             height: (display?.frame.height ?? 4096) * 0.95)
+            if stored[0] <= cap.width, stored[1] <= cap.height {
+                size = CGSize(width: max(size.width, stored[0]), height: max(size.height, stored[1]))
+            }
+        }
         return size
+    }
+
+    /// Remember each app's real floor so the first pass after a relaunch is already achievable.
+    /// Only bundle-id-keyed values are stored: window ids are not stable across launches.
+    private func persistLearnedMinimums(for ids: [WindowID]) {
+        var additions: [String: [CGFloat]] = [:]
+        for id in ids {
+            guard let window = engine.window(id), let bundleID = window.bundleID,
+                  !bundleID.isEmpty, let learned = engine.learnedMinimum(id) else { continue }
+            let display = displayInfo(for: window.display)
+            let cap = CGSize(width: (display?.frame.width ?? 4096) * 0.95,
+                             height: (display?.frame.height ?? 4096) * 0.95)
+            guard learned.width <= cap.width, learned.height <= cap.height else { continue }
+            let stored = prefs.learnedMinimums[bundleID] ?? [0, 0]
+            if learned.width > stored[0] + 1 || learned.height > stored[1] + 1 {
+                additions[bundleID] = [max(learned.width, stored[0]), max(learned.height, stored[1])]
+            }
+        }
+        guard !additions.isEmpty else { return }
+        PreferencesStore.shared.update { prefs in
+            for (bundleID, size) in additions { prefs.learnedMinimums[bundleID] = size }
+        }
     }
 
     /// Design-review fixtures only: adopt a tile order for Space with no AX windows behind it.
