@@ -5,15 +5,15 @@ failure is cheap to attribute.
 
 ## 0. Grant Accessibility (once, ever)
 
-`./scripts/bundle.sh release` signs with your Apple Development certificate, so the
-designated requirement is
+Run `./scripts/make-signing-identity.sh` first. On a new Mac it prints one
+`add-trusted-cert` command; run it, then `./scripts/bundle.sh release`. The signature is
+now stable, so the Accessibility grant below survives future rebuilds — that is the whole
+point of the identity.
 
-```
-identifier "com.shashvat.lattice" and anchor apple generic and certificate leaf[CN] = "Apple Development: …"
-```
-
-That is stable across rebuilds — unlike ad-hoc signing, which macOS pins to a binary hash
-and therefore forgets on every build. Grant once:
+`./scripts/bundle.sh release` signs with your Apple Development certificate when one is
+installed (designated requirement `identifier "com.shashvat.lattice" and anchor apple
+generic and certificate leaf[CN] = "Apple Development: …"`), and otherwise with the local
+"Lattice Dev Signing" identity (`identifier … and certificate root = H"…"`).
 
 1. Launch `build/Lattice.app`.
 2. Onboarding ▸ Permission ▸ **Request Access**, or System Settings ▸ Privacy & Security ▸
@@ -41,6 +41,11 @@ all while apps are visibly open (AX trust, or an app with `activationPolicy != .
 3. ⌃⌥⌘1–4 should re-layout the Space; the windows animate, not jump.
 4. Switch to another Space and back: the layout and proportions must be remembered per
    Space, and the other Space's windows must be untouched.
+5. Open more windows than the display can hold at their minimum sizes. The Space must not
+   be rearranged into overlapping columns: Overview shows **Space full** and the windows
+   stay exactly where they were. Close one and tiling resumes.
+6. Settings ▸ Window border ▸ on. The focused window gets a ring in the chosen colour,
+   and it follows focus without covering the window's own controls.
 
 ## 3. Snap preview
 
@@ -58,8 +63,9 @@ or `nativeDrag` for a third-party app, followed by a Space change if
 ## 5. Shortcuts
 
 Press ⌃⌥⌘K (palette) and ⌃⌥⌘/ (cheat sheet). Both must open over a full-screen app without
-stealing the Space. Rebind one chord in Settings ▸ Shortcuts and confirm the old chord
-stops working and the new one starts.
+stealing the Space. In the palette, exactly one row is highlighted; type `columns` and
+press Return — the layout changes and the palette closes. Rebind one chord in Settings ▸
+Shortcuts and confirm the old chord stops working and the new one starts.
 
 ## 6. Undo and pause
 

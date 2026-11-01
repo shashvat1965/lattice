@@ -64,8 +64,29 @@ per-display/edit-a-rule never appear in the popover.
 `Turn on Lattice` → `Done`, one escape ("Continue without it"), one privacy line. Then a single
 HUD toast with the four chords worth knowing.
 
-## Missing command to add
-`moveToNextDisplay` / `moveToPreviousDisplay` — the only job with no surface at all today.
+## Missing command — shipped
+
+`moveToNextDisplay` / `moveToPreviousDisplay` exist as `Next Display` / `Previous Display`
+in Shortcuts and the palette (unbound by default; bind them if you use two screens).
+
+## Fixed in the following pass
+
+- Overview's map card now fills the page **and keeps the display's aspect ratio**, so a
+  window is never drawn wider than it is.
+- Shortcuts no longer uses `List`; the page captures offscreen and scrolls normally.
+- The Apps search field, the app-rule menu and the border colour picker are drawn controls
+  in offscreen renders (the running app still uses the real control).
+- The command palette's keyboard selection was broken: every row in a section shared the
+  first row's index, so the whole list highlighted and Return ran the wrong command.
+- The palette's list no longer uses `LazyVStack` inside its non-activating panel, which
+  rendered only the first row of each section.
+- A Space that cannot hold every window at its apps' minimum sizes is left untouched with
+  a **Space full** note, instead of being squeezed into a wall of overlapping columns.
+- Each app's real minimum size is remembered across launches.
+- The window border overlay never came on screen; new rings were never ordered front.
+- Focus with the arrow keys no longer dies one step after each successful switch.
+- Drag-to-snap now lands exactly on the tiled half (it was inset by the gap twice).
+
 
 
 ---
@@ -85,9 +106,11 @@ HUD toast with the four chords worth knowing.
 - AppKit switches/sliders/segmented pickers replaced with drawn equivalents so the UI is
   consistent and capturable.
 
-## Known rough edges (next pass)
+## Known rough edges
 
-- Overview's map card does not stretch to the page width.
-- Shortcuts still uses `List`; it is the one page that cannot be captured offscreen yet.
-- The Apps search field and the border colour row are the last AppKit-backed controls, so they
-  appear as placeholders in the offscreen renders (they are correct in the running app).
+- Overview's map is a true-geometry diagram; when windows genuinely overlap (tiling
+  paused, or a Space that is too crowded), the tiles overlap on the map too. That is the
+  honest picture, not a layout bug.
+- A Space that cannot be tiled is left alone and says so. A future pass could pack the
+  windows that do fit and float the rest; leaving it untouched is the safe default today.
+
